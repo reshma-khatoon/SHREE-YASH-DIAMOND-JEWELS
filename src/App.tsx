@@ -337,7 +337,14 @@ function ProductCard({ product, addToCart, wishlist, toggleWishlist }: { product
         <button type="button" className="wishlist-button" onClick={() => toggleWishlist(product.id)} aria-label={`Add ${product.name} to wishlist`}>
           {wishlist.includes(product.id) ? '♥' : '♡'}
         </button>
-        <button type="button" className="quick-view" aria-label={`Quick view ${product.name}`}>Quick View</button>
+        <Link
+          to={`/product/${product.id}`}
+          className="quick-view"
+          aria-label={`Quick view ${product.name}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          Quick View
+        </Link>
       </div>
       <div className="product-body">
         <div className="product-meta">
