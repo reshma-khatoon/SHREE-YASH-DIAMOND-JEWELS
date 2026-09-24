@@ -19,7 +19,7 @@ export type Product = {
 
 export const categories = [
   { name: 'Rings', image: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=900&q=80', alt: 'Diamond ring from Shree Yash Diamond and Jewels' },
-  { name: 'Bracelets', image: '/bracelet1.avif', alt: 'Fine bracelet design from Shree Yash Diamond and Jewels' },
+  { name: 'Bracelets', image: '/Gold Tennis Bracelet.webp', alt: 'Fine bracelet design from Shree Yash Diamond and Jewels' },
   { name: 'Pendants', image: '/pendant1.jpg', alt: 'Diamond pendant by Shree Yash Diamond and Jewels' },
   { name: 'Chains', image: '/chains.webp', alt: 'Modern necklace chain from Shree Yash Diamond and Jewels' },
   { name: 'Earrings', image: '/sbc earring.png', alt: 'Elegant diamond earrings from Shree Yash Diamond and Jewels' },
@@ -175,7 +175,7 @@ const existingProducts: Product[] = [
     collection: 'Everyday Luxe',
     price: 26900,
     compareAtPrice: 31900,
-    image: '/bracelet1.avif',
+    image: '/Gold Tennis Bracelet.webp',
     alt: 'Zoya Diamond Bracelet by Shree Yash Diamond and Jewels',
     description: 'Sculpted elegance for the wrist, ideal for everyday shine and occasion styling.',
     material: '18K gold vermeil',
