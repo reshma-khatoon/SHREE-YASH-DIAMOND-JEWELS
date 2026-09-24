@@ -33,6 +33,8 @@ function SafeImage({ src, alt, className, ...props }: { src?: string; alt: strin
       className={className}
       onError={(event) => {
         const target = event.currentTarget
+        const failedSrc = target.currentSrc || target.src
+        console.warn('[SafeImage] Missing image path:', failedSrc)
         if (target.src !== fallbackJewelleryImage) {
           target.onerror = null
           target.src = fallbackJewelleryImage
@@ -745,11 +747,11 @@ function ProductDetailPage({ addToCart, wishlist, toggleWishlist }: { addToCart:
           <Link className="secondary-button" to={`/shop/${encodeURIComponent(product.category)}`}>Back to {product.category}</Link>
           <Link className="secondary-button" to="/shop">View All Jewellery</Link>
         </div>
-        <img src={product.image} alt={product.alt} className="main-image" />
+        <SafeImage src={product.image} alt={product.alt} className="main-image" />
         <div className="thumbnail-row">
-          <img src={product.image} alt={product.alt} />
-          <img src={product.image} alt={product.alt} />
-          <img src={product.image} alt={product.alt} />
+          <SafeImage src={product.image} alt={product.alt} />
+          <SafeImage src={product.image} alt={product.alt} />
+          <SafeImage src={product.image} alt={product.alt} />
         </div>
       </div>
       <div className="detail-copy">
@@ -961,7 +963,7 @@ function CartDrawer({ open, cart, subtotal, shipping, discount, total, onClose, 
         ) : (
           cart.map((item) => (
             <div key={item.id} className="cart-item">
-              <img src={item.image} alt={item.alt} />
+              <SafeImage src={item.image} alt={item.alt} />
               <div>
                 <strong>{item.name}</strong>
                 <small>{item.category}</small>
