@@ -1,18 +1,38 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type Product } from './data'
+import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
 
-const currency = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 0,
-})
-
-type CartItem = Product & { quantity: number }
+type CartItem = Product & { quantity: number; selectedPurity: GoldPurity }
+type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => void
 
 const fallbackJewelleryImage = 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=1200&q=80'
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
-const formatPrice = (value: number) => currency.format(value)
+async function postApi<T>(path: string, payload: unknown, requestKey?: string): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(requestKey ? { 'Idempotency-Key': requestKey } : {}),
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error('request_failed')
+  return response.json() as Promise<T>
+}
+
+function getIdempotencyKey(storageKey: string) {
+  const keyName = `shreeYashIdempotency:${storageKey}`
+  const existing = window.sessionStorage.getItem(keyName)
+  if (existing) return existing
+  const key = crypto.randomUUID()
+  window.sessionStorage.setItem(keyName, key)
+  return key
+}
+
+function clearIdempotencyKey(storageKey: string) {
+  window.sessionStorage.removeItem(`shreeYashIdempotency:${storageKey}`)
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -65,13 +85,24 @@ const writeStorage = (key: string, value: unknown) => {
   }
 }
 
-const getInitialCart = (): CartItem[] => readStorage<CartItem[]>('shreeYashCart', [])
+const getInitialCart = (): CartItem[] => readStorage<Array<CartItem & { selectedPurity?: GoldPurity }>>('shreeYashCart', [])
+  .flatMap((savedItem) => {
+    const product = products.find((item) => item.id === savedItem.id)
+    if (!product || savedItem.quantity < 1) return []
+    const selectedPurity = product.availablePurities?.includes(savedItem.selectedPurity as GoldPurity)
+      ? savedItem.selectedPurity as GoldPurity
+      : product.defaultPurity ?? product.availablePurities?.[0]
+    return selectedPurity ? [{ ...product, selectedPurity, quantity: savedItem.quantity }] : []
+  })
 
 const getInitialWishlist = (): string[] => readStorage<string[]>('shreeYashWishlist', [])
+const getInitialWishlistPurities = (): Record<string, GoldPurity> => readStorage<Record<string, GoldPurity>>('shreeYashWishlistPurities', {})
 
 function App() {
+  const location = useLocation()
   const [cart, setCart] = useState<CartItem[]>(getInitialCart)
   const [wishlist, setWishlist] = useState<string[]>(getInitialWishlist)
+  const [wishlistPurities, setWishlistPurities] = useState<Record<string, GoldPurity>>(getInitialWishlistPurities)
   const [cartOpen, setCartOpen] = useState(false)
 
   useEffect(() => {
@@ -82,45 +113,76 @@ function App() {
     writeStorage('shreeYashWishlist', wishlist)
   }, [wishlist])
 
-  const addToCart = (product: Product, quantity = 1) => {
+  useEffect(() => {
+    writeStorage('shreeYashWishlistPurities', wishlistPurities)
+  }, [wishlistPurities])
+
+  useEffect(() => {
+    try {
+      const storageKey = 'shreeYashVisitorSessionId'
+      let sessionId = window.sessionStorage.getItem(storageKey)
+      if (!sessionId) {
+        sessionId = crypto.randomUUID()
+        window.sessionStorage.setItem(storageKey, sessionId)
+      }
+      void postApi('/api/visitors', {
+        sessionId,
+        page: location.pathname,
+        device: navigator.userAgent.slice(0, 300),
+        referrer: document.referrer,
+      }).catch(() => undefined)
+    } catch {
+      // Visitor tracking must never block site navigation.
+    }
+  }, [location.pathname])
+
+  const addToCart: AddToCart = (product, selectedPurity, quantity = 1) => {
     setCart((current: CartItem[]) => {
-      const existing = current.find((item: CartItem) => item.id === product.id)
+      const existing = current.find((item: CartItem) => item.id === product.id && item.selectedPurity === selectedPurity)
       if (existing) {
         return current.map((item: CartItem) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item,
+          item.id === product.id && item.selectedPurity === selectedPurity ? { ...item, quantity: item.quantity + quantity } : item,
         )
       }
-      return [...current, { ...product, quantity }]
+      return [...current, { ...product, selectedPurity, quantity }]
     })
     setCartOpen(true)
   }
 
-  const updateCartItem = (id: string, change: number) => {
+  const updateCartItem = (id: string, purity: GoldPurity, change: number) => {
     setCart((current: CartItem[]) =>
       current
         .map((item: CartItem) =>
-          item.id === id ? { ...item, quantity: Math.max(0, item.quantity + change) } : item,
+          item.id === id && item.selectedPurity === purity ? { ...item, quantity: Math.max(0, item.quantity + change) } : item,
         )
         .filter((item: CartItem) => item.quantity > 0),
     )
   }
 
-  const removeFromCart = (id: string) => {
-    setCart((current: CartItem[]) => current.filter((item: CartItem) => item.id !== id))
+  const removeFromCart = (id: string, purity: GoldPurity) => {
+    setCart((current: CartItem[]) => current.filter((item: CartItem) => item.id !== id || item.selectedPurity !== purity))
   }
 
-  const subtotal = cart.reduce((sum: number, item: CartItem) => sum + item.price * item.quantity, 0)
-  const shipping = subtotal > 0 ? 399 : 0
-  const discount = subtotal > 30000 ? 1500 : 0
-  const total = subtotal + shipping - discount
-
-  const toggleWishlist = (id: string) => {
+  const toggleWishlist = (id: string, purity?: GoldPurity) => {
+    const isSaved = wishlist.includes(id)
     setWishlist((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     )
+    setWishlistPurities((current) => {
+      if (isSaved) {
+        const next = { ...current }
+        delete next[id]
+        return next
+      }
+      return purity ? { ...current, [id]: purity } : current
+    })
   }
 
-  const rootPath = useLocation().pathname
+  const updateWishlistPurity = (id: string, purity: GoldPurity) => {
+    setWishlistPurities((current) => ({ ...current, [id]: purity }))
+  }
+
+  const rootPath = location.pathname
 
   return (
     <>
@@ -132,16 +194,16 @@ function App() {
       />
       <main className="app-shell">
         <Routes>
-          <Route path="/" element={<HomePage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
-          <Route path="/shop/:categoryName" element={<ShopPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
-          <Route path="/shop" element={<ShopPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
-          <Route path="/category/:categoryName" element={<ShopPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
-          <Route path="/category" element={<ShopPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
-          <Route path="/wishlist" element={<WishlistPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/" element={<HomePage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/shop/:categoryName" element={<ShopPage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/shop" element={<ShopPage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/category/:categoryName" element={<ShopPage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/category" element={<ShopPage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/wishlist" element={<WishlistPage toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
           <Route path="/journey" element={<JourneyPage />} />
-          <Route path="/product/:productId" element={<ProductDetailPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} />} />
+          <Route path="/product/:productId" element={<ProductDetailPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} wishlistPurities={wishlistPurities} updateWishlistPurity={updateWishlistPurity} />} />
           <Route path="/contact" element={<ContactPage />} />
-          <Route path="/checkout" element={<CheckoutPage cart={cart} subtotal={subtotal} shipping={shipping} discount={discount} total={total} updateCartItem={updateCartItem} />} />
+          <Route path="/checkout" element={<CheckoutPage cart={cart} updateCartItem={updateCartItem} onOrderPlaced={() => { setCart([]); setCartOpen(false) }} />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
@@ -149,10 +211,6 @@ function App() {
       <CartDrawer
         open={cartOpen}
         cart={cart}
-        subtotal={subtotal}
-        shipping={shipping}
-        discount={discount}
-        total={total}
         onClose={() => setCartOpen(false)}
         removeFromCart={removeFromCart}
         updateCartItem={updateCartItem}
@@ -306,7 +364,7 @@ function CategorySection() {
   )
 }
 
-function ProductCarousel({ addToCart, wishlist, toggleWishlist }: { addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function ProductCarousel({ wishlist, toggleWishlist }: { wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void }) {
   const newArrivals = products.filter((product) => product.newArrival)
 
   return (
@@ -320,14 +378,43 @@ function ProductCarousel({ addToCart, wishlist, toggleWishlist }: { addToCart: (
       </div>
       <div className="product-carousel" aria-label="New arrivals products">
         {newArrivals.map((product) => (
-          <ProductCard key={product.id} product={product} addToCart={addToCart} wishlist={wishlist} toggleWishlist={toggleWishlist} />
+          <ProductCard key={product.id} product={product} wishlist={wishlist} toggleWishlist={toggleWishlist} />
         ))}
       </div>
     </section>
   )
 }
 
-function ProductCard({ product, addToCart, wishlist, toggleWishlist }: { product: Product; addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function GoldPuritySelector({ product, value, onChange, compact = false }: { product: Product; value: GoldPurity | ''; onChange: (purity: GoldPurity) => void; compact?: boolean }) {
+  const purities: GoldPurity[] = ['14K', '18K', '22K']
+  const availablePurities = product.availablePurities ?? []
+
+  return (
+    <div className={`purity-selector ${compact ? 'compact' : ''}`}>
+      {!compact && <span className="purity-label">Select Gold Purity</span>}
+      <div className="purity-options" role="group" aria-label={`Gold purity for ${product.name}`}>
+        {purities.map((purity) => {
+          const available = availablePurities.includes(purity)
+          return (
+            <button
+              key={purity}
+              type="button"
+              className={value === purity ? 'selected' : ''}
+              aria-pressed={value === purity}
+              disabled={!available}
+              title={!available ? `${purity} is not available for ${product.name}` : `${purity} Gold`}
+              onClick={() => onChange(purity)}
+            >
+              {purity}{value === purity ? ' ✓' : ''}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ProductCard({ product, wishlist, toggleWishlist }: { product: Product; wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void }) {
   return (
     <article className="product-card">
       <div className="product-image-wrap">
@@ -349,16 +436,14 @@ function ProductCard({ product, addToCart, wishlist, toggleWishlist }: { product
       <div className="product-body">
         <div className="product-meta">
           <span>{product.category}</span>
-          {product.compareAtPrice && <span>{Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)}% Off</span>}
         </div>
         <h3><Link to={`/product/${product.id}`}>{product.name}</Link></h3>
         <div className="price-row">
-          <strong>{formatPrice(product.price)}</strong>
-          {product.compareAtPrice && <span>{formatPrice(product.compareAtPrice)}</span>}
+          <strong>Price on Request</strong>
         </div>
         <div className="product-card-actions">
           <Link to={`/product/${product.id}`} className="secondary-button small-btn">View Details</Link>
-          <button type="button" className="primary-button small-btn" onClick={() => addToCart(product)}>Add to Cart</button>
+          <Link to={`/product/${product.id}`} className="primary-button small-btn">Add to Cart</Link>
         </div>
       </div>
     </article>
@@ -388,14 +473,14 @@ function JourneyPage() {
   )
 }
 
-function HomePage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function HomePage({ wishlist, toggleWishlist }: { wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void }) {
   const bestsellers = products.filter((product) => product.bestseller)
 
   return (
     <>
       <Hero />
       <CategorySection />
-      <ProductCarousel addToCart={addToCart} wishlist={wishlist} toggleWishlist={toggleWishlist} />
+      <ProductCarousel wishlist={wishlist} toggleWishlist={toggleWishlist} />
       <section className="feature-banner container">
         <div className="feature-banner-copy">
           <p className="eyebrow">The Shree Yash Collection</p>
@@ -413,7 +498,7 @@ function HomePage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product
         </div>
         <div className="product-grid compact-grid">
           {bestsellers.map((product) => (
-            <ProductCard key={product.id} product={product} addToCart={addToCart} wishlist={wishlist} toggleWishlist={toggleWishlist} />
+            <ProductCard key={product.id} product={product} wishlist={wishlist} toggleWishlist={toggleWishlist} />
           ))}
         </div>
       </section>
@@ -571,7 +656,7 @@ function FaqList() {
   )
 }
 
-function ShopPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function ShopPage({ wishlist, toggleWishlist }: { wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { categoryName } = useParams()
@@ -609,8 +694,6 @@ function ShopPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product
       return matchesQuery && matchesCategory
     })
 
-    if (sort === 'price-low') results = [...results].sort((a, b) => a.price - b.price)
-    if (sort === 'price-high') results = [...results].sort((a, b) => b.price - a.price)
     if (sort === 'name') results = [...results].sort((a, b) => a.name.localeCompare(b.name))
 
     return results
@@ -687,8 +770,6 @@ function ShopPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product
           </select>
           <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort products">
             <option value="featured">Featured</option>
-            <option value="price-low">Price: low to high</option>
-            <option value="price-high">Price: high to low</option>
             <option value="name">Name</option>
           </select>
         </div>
@@ -702,7 +783,7 @@ function ShopPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product
       ) : (
         <div className="product-grid shop-grid">
           {filteredProducts.map((product) => (
-            <ProductCard key={product.id} product={product} addToCart={addToCart} wishlist={wishlist} toggleWishlist={toggleWishlist} />
+            <ProductCard key={product.id} product={product} wishlist={wishlist} toggleWishlist={toggleWishlist} />
           ))}
         </div>
       )}
@@ -710,7 +791,7 @@ function ShopPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product
   )
 }
 
-function WishlistPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function WishlistPage({ wishlist, toggleWishlist }: { wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void }) {
   const savedProducts = products.filter((product) => wishlist.includes(product.id))
 
   return (
@@ -728,7 +809,7 @@ function WishlistPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (pro
       ) : (
         <div className="product-grid shop-grid">
           {savedProducts.map((product) => (
-            <ProductCard key={product.id} product={product} addToCart={addToCart} wishlist={wishlist} toggleWishlist={toggleWishlist} />
+            <ProductCard key={product.id} product={product} wishlist={wishlist} toggleWishlist={toggleWishlist} />
           ))}
         </div>
       )}
@@ -736,16 +817,22 @@ function WishlistPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (pro
   )
 }
 
-function ProductDetailPage({ addToCart, wishlist, toggleWishlist }: { addToCart: (product: Product, quantity?: number) => void; wishlist: string[]; toggleWishlist: (id: string) => void }) {
+function ProductDetailPage({ addToCart, wishlist, toggleWishlist, wishlistPurities, updateWishlistPurity }: { addToCart: AddToCart; wishlist: string[]; toggleWishlist: (id: string, purity?: GoldPurity) => void; wishlistPurities: Record<string, GoldPurity>; updateWishlistPurity: (id: string, purity: GoldPurity) => void }) {
   const { productId } = useParams()
   const product = products.find((item) => item.id === productId) ?? products[0]
   const [quantity, setQuantity] = useState(1)
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? '')
+  const [selectedPurity, setSelectedPurity] = useState<GoldPurity | ''>(wishlistPurities[product.id] ?? product.defaultPurity ?? '')
+  const [priceInquiryOpen, setPriceInquiryOpen] = useState(false)
 
   useEffect(() => {
     setQuantity(1)
     setSelectedSize(product.sizes?.[0] ?? '')
-  }, [product.id, product.sizes])
+    setSelectedPurity(wishlistPurities[product.id] ?? product.defaultPurity ?? '')
+  }, [product.id, product.sizes, product.defaultPurity, wishlistPurities])
+
+  const whatsappMessage = `Hello Shree Yash Diamond & Jewels,\n\nI am interested in:\nProduct: ${product.name}\nGold Purity: ${selectedPurity ? `${selectedPurity} Gold` : 'Not selected'}\n\nPlease share the latest price and available customization options.\n\nThank you.`
+  const whatsappHref = `https://wa.me/919711781963?text=${encodeURIComponent(whatsappMessage)}`
 
   return (
     <section className="container section-block product-detail-page">
@@ -769,10 +856,10 @@ function ProductDetailPage({ addToCart, wishlist, toggleWishlist }: { addToCart:
           <small>4.9 / 5</small>
         </div>
         <div className="price-row detail-price">
-          <strong>{formatPrice(product.price)}</strong>
-          {product.compareAtPrice && <span>{formatPrice(product.compareAtPrice)}</span>}
+          <strong>Price on Request</strong>
         </div>
         <p className="detail-description">{product.description}</p>
+        <GoldPuritySelector product={product} value={selectedPurity} onChange={(purity) => { setSelectedPurity(purity); if (wishlist.includes(product.id)) updateWishlistPurity(product.id, purity) }} />
         {product.sizes && product.sizes.length > 0 && (
           <div className="variant-block">
             <span>Available sizes</span>
@@ -800,12 +887,12 @@ function ProductDetailPage({ addToCart, wishlist, toggleWishlist }: { addToCart:
             <span>{quantity}</span>
             <button type="button" onClick={() => setQuantity((q) => q + 1)}>+</button>
           </div>
-          <button type="button" className="primary-button" onClick={() => addToCart(product, quantity)}>Add to Cart</button>
-          <button type="button" className="secondary-button" onClick={() => toggleWishlist(product.id)}>{wishlist.includes(product.id) ? 'Saved' : 'Wishlist'}</button>
+          <button type="button" className="primary-button" disabled={!selectedPurity} onClick={() => selectedPurity && addToCart(product, selectedPurity, quantity)}>Add to Cart</button>
+          <button type="button" className="secondary-button" onClick={() => toggleWishlist(product.id, selectedPurity || undefined)}>{wishlist.includes(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}</button>
         </div>
         <div className="detail-secondary-actions">
-          <button type="button" onClick={() => addToCart(product, quantity)}>Order Now</button>
-          <button type="button">WhatsApp Enquiry</button>
+          <button type="button" disabled={!selectedPurity} onClick={() => setPriceInquiryOpen(true)}>Get Latest Price</button>
+          <a href={whatsappHref} target="_blank" rel="noreferrer" aria-disabled={!selectedPurity} onClick={(event) => { if (!selectedPurity) event.preventDefault() }}>Enquire on WhatsApp</a>
         </div>
       </div>
       <div className="detail-meta-block">
@@ -831,16 +918,96 @@ function ProductDetailPage({ addToCart, wishlist, toggleWishlist }: { addToCart:
           <p>Store separately, avoid harsh chemicals, and wipe gently with a soft cloth.</p>
         </div>
       </div>
+      {priceInquiryOpen && selectedPurity && (
+        <PriceInquiryForm
+          product={product}
+          purity={selectedPurity}
+          onClose={() => setPriceInquiryOpen(false)}
+          whatsappHref={whatsappHref}
+        />
+      )}
     </section>
   )
 }
 
-function ContactPage() {
-  const [submitted, setSubmitted] = useState(false)
+function PriceInquiryForm({ product, purity, onClose, whatsappHref }: { product: Product; purity: GoldPurity; onClose: () => void; whatsappHref: string }) {
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setSubmitted(true)
+    setStatus('sending')
+    const formData = new FormData(event.currentTarget)
+    try {
+      await postApi('/api/price-inquiries', {
+        name: String(formData.get('name') ?? '').trim(),
+        phone: String(formData.get('phone') ?? '').trim(),
+        email: String(formData.get('email') ?? '').trim(),
+        productId: product.id,
+        goldPurity: purity,
+        message: String(formData.get('message') ?? '').trim(),
+      }, getIdempotencyKey(`price-${product.id}`))
+      clearIdempotencyKey(`price-${product.id}`)
+      setStatus('sent')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  return (
+    <div className="inquiry-overlay" role="presentation">
+      <section className="price-inquiry-modal" role="dialog" aria-modal="true" aria-labelledby="price-inquiry-title">
+        <button type="button" className="inquiry-close" onClick={onClose} aria-label="Close price inquiry">×</button>
+        <p className="eyebrow">Personalised assistance</p>
+        <h2 id="price-inquiry-title">Get Latest Price</h2>
+        {status === 'sent' ? (
+          <p className="success-copy" role="status">Thank you for contacting Shree Yash Diamond &amp; Jewels. Our team will get back to you shortly.</p>
+        ) : (
+          <>
+            <div className="inquiry-product-summary">
+              <span>Product</span><strong>{product.name}</strong>
+              <span>Gold Purity</span><strong>{purity} Gold</strong>
+              <span>Price</span><strong>Price on Request</strong>
+            </div>
+            <form className="price-inquiry-form" onSubmit={handleSubmit}>
+              <label>Name<input name="name" autoComplete="name" required /></label>
+              <label>Phone Number<input name="phone" type="tel" autoComplete="tel" required /></label>
+              <label>Email (optional)<input name="email" type="email" autoComplete="email" /></label>
+              <label>Message (optional)<textarea name="message" rows={3} /></label>
+              <button type="submit" className="primary-button" disabled={status === 'sending'}>
+                {status === 'sending' ? 'Sending…' : 'Submit Inquiry'}
+              </button>
+              {status === 'error' && (
+                <p className="inquiry-error" role="alert">
+                  We could not submit your request. Please try again or contact us via <a href={whatsappHref} target="_blank" rel="noreferrer">WhatsApp</a>.
+                </p>
+              )}
+            </form>
+          </>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function ContactPage() {
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setStatus('sending')
+    const formData = new FormData(event.currentTarget)
+    try {
+      await postApi('/api/inquiries', {
+        name: String(formData.get('name') ?? '').trim(),
+        phone: String(formData.get('phone') ?? '').trim(),
+        email: String(formData.get('email') ?? '').trim(),
+        message: String(formData.get('message') ?? '').trim(),
+      }, getIdempotencyKey('contact'))
+      clearIdempotencyKey('contact')
+      setStatus('sent')
+    } catch {
+      setStatus('error')
+    }
   }
 
   return (
@@ -861,33 +1028,72 @@ function ContactPage() {
         <form className="contact-form" onSubmit={handleSubmit}>
           <label>
             Name
-            <input type="text" placeholder="Your name" required />
+            <input name="name" type="text" placeholder="Your name" autoComplete="name" required />
+          </label>
+          <label>
+            Phone
+            <input name="phone" type="tel" placeholder="Your phone number" autoComplete="tel" required />
           </label>
           <label>
             Email
-            <input type="email" placeholder="Your email" required />
+            <input name="email" type="email" placeholder="Your email" autoComplete="email" required />
           </label>
           <label>
             Message
-            <textarea rows={5} placeholder="Tell us about your enquiry" required />
+            <textarea name="message" rows={5} placeholder="Tell us about your enquiry" required />
           </label>
-          <button type="submit" className="primary-button">Send Message</button>
-          {submitted && <p className="success-copy">Your message has been noted and the team will contact you soon.</p>}
+          <button type="submit" className="primary-button" disabled={status === 'sending'}>{status === 'sending' ? 'Sending…' : 'Send Message'}</button>
+          {status === 'sent' && <p className="success-copy" role="status">Thank you for contacting Shree Yash Diamond &amp; Jewels. Our team will get back to you shortly.</p>}
+          {status === 'error' && <p className="inquiry-error" role="alert">We could not submit your inquiry. Please try again shortly.</p>}
         </form>
       </div>
     </section>
   )
 }
 
-function CheckoutPage({ cart, subtotal, shipping, discount, total, updateCartItem }: { cart: CartItem[]; subtotal: number; shipping: number; discount: number; total: number; updateCartItem: (id: string, change: number) => void }) {
+function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[]; updateCartItem: (id: string, purity: GoldPurity, change: number) => void; onOrderPlaced: () => void }) {
   const [orderPlaced, setOrderPlaced] = useState(false)
+  const [orderId, setOrderId] = useState('')
+  const [orderStatus, setOrderStatus] = useState<'idle' | 'sending' | 'error'>('idle')
+
+  const handleOrderSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setOrderStatus('sending')
+    const formData = new FormData(event.currentTarget)
+    const order = {
+      customer: {
+        name: String(formData.get('name') ?? '').trim(),
+        phone: String(formData.get('phone') ?? '').trim(),
+        email: String(formData.get('email') ?? '').trim(),
+        address: String(formData.get('address') ?? '').trim(),
+        city: String(formData.get('city') ?? '').trim(),
+        state: String(formData.get('state') ?? '').trim(),
+        pincode: String(formData.get('pincode') ?? '').trim(),
+      },
+      items: cart.map((item) => ({
+        productId: item.id,
+        goldPurity: item.selectedPurity,
+        quantity: item.quantity,
+      })),
+    }
+    try {
+      const result = await postApi<{ orderId: string }>('/api/orders', order, getIdempotencyKey('order'))
+      setOrderId(result.orderId)
+      clearIdempotencyKey('order')
+      onOrderPlaced()
+      setOrderPlaced(true)
+    } catch {
+      setOrderStatus('error')
+    }
+  }
 
   if (orderPlaced) {
     return (
       <section className="container section-block thank-you-page">
         <p className="eyebrow">Order placed</p>
         <h1>Thank you for your order.</h1>
-        <p>Your request has been captured for processing. Our team will contact you with the next steps.</p>
+        <p>Thank you for your order! Your order has been received successfully. Our team will contact you shortly.</p>
+        {orderId && <p>Order ID: <strong>{orderId}</strong></p>}
         <Link to="/shop" className="primary-button">Continue shopping</Link>
       </section>
     )
@@ -899,17 +1105,17 @@ function CheckoutPage({ cart, subtotal, shipping, discount, total, updateCartIte
         <p className="eyebrow">Checkout</p>
         <h1>Review Your Order</h1>
       </div>
-      <div className="checkout-layout">
+      <form className="checkout-layout" onSubmit={handleOrderSubmit}>
         <div className="checkout-card">
           <h3>Customer Details</h3>
           <div className="checkout-form-grid">
-            <label>Full Name<input type="text" placeholder="Your full name" /></label>
-            <label>Email<input type="email" placeholder="Email address" /></label>
-            <label>Phone<input type="tel" placeholder="Phone number" /></label>
-            <label>Address<textarea rows={3} placeholder="Street address" /></label>
-            <label>City<input type="text" placeholder="City" /></label>
-            <label>State<input type="text" placeholder="State" /></label>
-            <label>Pincode<input type="text" placeholder="Pincode" /></label>
+            <label>Full Name<input name="name" type="text" autoComplete="name" required /></label>
+            <label>Email (optional)<input name="email" type="email" autoComplete="email" /></label>
+            <label>Phone<input name="phone" type="tel" autoComplete="tel" required /></label>
+            <label>Address<textarea name="address" rows={3} autoComplete="street-address" required /></label>
+            <label>City<input name="city" autoComplete="address-level2" required /></label>
+            <label>State<input name="state" autoComplete="address-level1" required /></label>
+            <label>Pincode<input name="pincode" autoComplete="postal-code" required /></label>
           </div>
         </div>
 
@@ -919,30 +1125,28 @@ function CheckoutPage({ cart, subtotal, shipping, discount, total, updateCartIte
             <p>Your cart is empty.</p>
           ) : (
             cart.map((item) => (
-              <div key={item.id} className="summary-item">
+              <div key={`${item.id}-${item.selectedPurity}`} className="summary-item">
                 <div>
                   <strong>{item.name}</strong>
-                  <small>{formatPrice(item.price)} each</small>
+                  <small>{item.selectedPurity} Gold · Price on Request</small>
                 </div>
                 <div className="summary-controls">
-                  <button type="button" onClick={() => updateCartItem(item.id, -1)}>−</button>
+                  <button type="button" onClick={() => updateCartItem(item.id, item.selectedPurity, -1)}>−</button>
                   <span>{item.quantity}</span>
-                  <button type="button" onClick={() => updateCartItem(item.id, 1)}>+</button>
+                  <button type="button" onClick={() => updateCartItem(item.id, item.selectedPurity, 1)}>+</button>
                 </div>
               </div>
             ))
           )}
           <div className="totals">
-            <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
-            <div><span>Shipping</span><strong>{formatPrice(shipping)}</strong></div>
-            <div><span>Discount</span><strong>-{formatPrice(discount)}</strong></div>
-            <div className="grand-total"><span>Total</span><strong>{formatPrice(total)}</strong></div>
+            <div className="grand-total"><span>Price</span><strong>To be confirmed</strong></div>
           </div>
-          <button type="button" className="primary-button" onClick={() => setOrderPlaced(true)} disabled={cart.length === 0}>
-            Place Order
+          <button type="submit" className="primary-button" disabled={cart.length === 0 || orderStatus === 'sending'}>
+            {orderStatus === 'sending' ? 'Submitting…' : 'Place Order'}
           </button>
+          {orderStatus === 'error' && <p className="inquiry-error" role="alert">We could not submit your order. Please try again shortly.</p>}
         </aside>
-      </div>
+      </form>
     </section>
   )
 }
@@ -957,7 +1161,7 @@ function NotFoundPage() {
   )
 }
 
-function CartDrawer({ open, cart, subtotal, shipping, discount, total, onClose, removeFromCart, updateCartItem }: { open: boolean; cart: CartItem[]; subtotal: number; shipping: number; discount: number; total: number; onClose: () => void; removeFromCart: (id: string) => void; updateCartItem: (id: string, change: number) => void }) {
+function CartDrawer({ open, cart, onClose, removeFromCart, updateCartItem }: { open: boolean; cart: CartItem[]; onClose: () => void; removeFromCart: (id: string, purity: GoldPurity) => void; updateCartItem: (id: string, purity: GoldPurity, change: number) => void }) {
   return (
     <div className={`cart-drawer ${open ? 'show' : ''}`}>
       <div className="drawer-header">
@@ -969,30 +1173,28 @@ function CartDrawer({ open, cart, subtotal, shipping, discount, total, onClose, 
           <p className="empty-cart">Your cart is empty. Add a timeless piece to begin.</p>
         ) : (
           cart.map((item) => (
-            <div key={item.id} className="cart-item">
+            <div key={`${item.id}-${item.selectedPurity}`} className="cart-item">
               <SafeImage src={item.image} alt={item.alt} />
               <div>
                 <strong>{item.name}</strong>
                 <small>{item.category}</small>
+                <small>{item.selectedPurity} Gold · Price on Request</small>
                 <div className="cart-controls">
-                  <button type="button" onClick={() => updateCartItem(item.id, -1)}>-</button>
+                  <button type="button" onClick={() => updateCartItem(item.id, item.selectedPurity, -1)}>-</button>
                   <span>{item.quantity}</span>
-                  <button type="button" onClick={() => updateCartItem(item.id, 1)}>+</button>
+                  <button type="button" onClick={() => updateCartItem(item.id, item.selectedPurity, 1)}>+</button>
                 </div>
               </div>
               <div className="cart-price">
-                <strong>{formatPrice(item.price * item.quantity)}</strong>
-                <button type="button" onClick={() => removeFromCart(item.id)}>Remove</button>
+                <strong>On Request</strong>
+                <button type="button" onClick={() => removeFromCart(item.id, item.selectedPurity)}>Remove</button>
               </div>
             </div>
           ))
         )}
       </div>
       <div className="drawer-footer">
-        <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
-        <div><span>Shipping</span><strong>{formatPrice(shipping)}</strong></div>
-        <div><span>Discount</span><strong>-{formatPrice(discount)}</strong></div>
-        <div className="grand-total"><span>Total</span><strong>{formatPrice(total)}</strong></div>
+        <div className="grand-total"><span>Price</span><strong>To be confirmed</strong></div>
         <Link to="/checkout" className="primary-button" onClick={onClose}>Checkout</Link>
       </div>
     </div>

@@ -1,10 +1,13 @@
+export type GoldPurity = '14K' | '18K' | '22K'
+
 export type Product = {
   id: string
   name: string
   category: string
   collection: string
-  price: number
-  compareAtPrice?: number
+  priceType?: 'on-request'
+  availablePurities?: GoldPurity[]
+  defaultPurity?: GoldPurity
   image: string
   alt: string
   description: string
@@ -32,14 +35,14 @@ export const categories = [
   { name: 'Bridal Other Jewelleries', image: '/sbc other jewels.jpg', alt: 'Bridal jewellery styling by Shree Yash Diamond and Jewels' },
 ]
 
-const existingProducts: Product[] = [
+type ProductCatalogEntry = Omit<Product, 'priceType'>
+
+const existingProducts: ProductCatalogEntry[] = [
   {
     id: 'celeste-diamond-ring',
     name: 'Celeste Diamond Ring',
     category: 'Rings',
     collection: 'Modern Romance',
-    price: 28900,
-    compareAtPrice: 32900,
     image: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=900&q=80',
     alt: 'Celeste Diamond Ring by Shree Yash Diamond and Jewels',
     description: 'A graceful diamond ring designed for modern heirlooms and everyday celebrations.',
@@ -56,8 +59,8 @@ const existingProducts: Product[] = [
     name: 'Noor Solitaire Ring',
     category: 'Rings',
     collection: 'Monarch',
-    price: 34900,
-    compareAtPrice: 39900,
+    availablePurities: ['18K', '22K'],
+    defaultPurity: '18K',
     image: '/nsr.webp',
     alt: 'Noor Solitaire Ring by Shree Yash Diamond and Jewels',
     description: 'A solitaire ring with a sculpted band and a softly brilliant centre stone.',
@@ -74,8 +77,6 @@ const existingProducts: Product[] = [
     name: 'Aarna Diamond Pendant',
     category: 'Pendants',
     collection: 'Dusk Aura',
-    price: 22900,
-    compareAtPrice: 26900,
     image: '/pendant1.jpg',
     alt: 'Aarna Diamond Pendant by Shree Yash Diamond and Jewels',
     description: 'An elegant pendant balancing softness and shine for daily wear and gifting.',
@@ -91,8 +92,6 @@ const existingProducts: Product[] = [
     name: 'Vesha Diamond Pendant',
     category: 'Pendants',
     collection: 'Pearl Bloom',
-    price: 25400,
-    compareAtPrice: 29900,
     image: '/Vesha Diamond Pendant.avif',
     alt: 'Vesha Diamond Pendant by Shree Yash Diamond and Jewels',
     description: 'A luxe pendant with luminous accents created for festive gifting and everyday elegance.',
@@ -107,8 +106,6 @@ const existingProducts: Product[] = [
     name: 'Meher Pearl Drop Earrings',
     category: 'Earrings',
     collection: 'Pearl Bloom',
-    price: 18900,
-    compareAtPrice: 21900,
     image: '/mpd.webp',
     alt: 'Meher Pearl Drop Earrings by Shree Yash Diamond and Jewels',
     description: 'Pearl-drop earrings that add luminous grace to festive and evening looks.',
@@ -124,8 +121,6 @@ const existingProducts: Product[] = [
     name: 'Naina Crescent Earrings',
     category: 'Earrings',
     collection: 'Moonlit Notes',
-    price: 21400,
-    compareAtPrice: 24400,
     image: '/nce.webp',
     alt: 'Naina Crescent Earrings by Shree Yash Diamond and Jewels',
     description: 'Modern crescent silhouettes with a delicate shimmer designed for elevated styling.',
@@ -140,8 +135,6 @@ const existingProducts: Product[] = [
     name: 'Ira Halo Necklace',
     category: 'Necklaces',
     collection: 'Halo Edit',
-    price: 38900,
-    compareAtPrice: 44900,
     image: 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=80',
     alt: 'Ira Halo Necklace by Shree Yash Diamond and Jewels',
     description: 'A luminous halo necklace designed for statement moments and layered styling.',
@@ -157,8 +150,6 @@ const existingProducts: Product[] = [
     name: 'Sahana Garden Necklace',
     category: 'Necklaces',
     collection: 'Bloom Edit',
-    price: 42000,
-    compareAtPrice: 48200,
     image: '/Sahana Garden Necklace.jpg',
     alt: 'Sahana Garden Necklace by Shree Yash Diamond and Jewels',
     description: 'An intricate necklace statement with layered floral sparkle for milestone evenings.',
@@ -173,8 +164,6 @@ const existingProducts: Product[] = [
     name: 'Zoya Diamond Bracelet',
     category: 'Bracelets',
     collection: 'Everyday Luxe',
-    price: 26900,
-    compareAtPrice: 31900,
     image: '/bracelet1.avif',
     alt: 'Zoya Diamond Bracelet by Shree Yash Diamond and Jewels',
     description: 'Sculpted elegance for the wrist, ideal for everyday shine and occasion styling.',
@@ -191,8 +180,6 @@ const existingProducts: Product[] = [
     name: 'Navya Bangle Set',
     category: 'Bangles',
     collection: 'Festive Light',
-    price: 31000,
-    compareAtPrice: 35900,
     image: '/bb.webp',
     alt: 'Navya Bangle Set by Shree Yash Diamond and Jewels',
     description: 'A polished bangle set with luminous silhouettes built for statements and gifting.',
@@ -207,8 +194,6 @@ const existingProducts: Product[] = [
     name: 'Tara Anklet',
     category: 'Anklets',
     collection: 'Footnotes',
-    price: 18200,
-    compareAtPrice: 21400,
     image: '/anklet.webp',
     alt: 'Tara Anklet by Shree Yash Diamond and Jewels',
     description: 'A delicate anklet designed to add a subtle shimmer to festive looks and evening occasions.',
@@ -223,8 +208,6 @@ const existingProducts: Product[] = [
     name: 'Mira Chain',
     category: 'Chains',
     collection: 'Minimal Glow',
-    price: 21400,
-    compareAtPrice: 24900,
     image: '/chains.webp',
     alt: 'Mira Chain by Shree Yash Diamond and Jewels',
     description: 'A refined chain with a minimal frame designed for layering and everyday luxury.',
@@ -239,8 +222,6 @@ const existingProducts: Product[] = [
     name: 'Saanvi Bridal Set',
     category: 'Bridal Necklace',
     collection: 'Forever Moments',
-    price: 54000,
-    compareAtPrice: 62400,
     image: '/Saanvi Bridal Set.jpg',
     alt: 'Saanvi Bridal Set by Shree Yash Diamond and Jewels',
     description: 'A richly detailed bridal set balancing traditional artistry with refined sophistication.',
@@ -256,8 +237,8 @@ const existingProducts: Product[] = [
 const categoryProductCatalog: Record<string, Array<{
   name: string
   collection: string
-  price: number
-  compareAtPrice?: number
+  availablePurities?: GoldPurity[]
+  defaultPurity?: GoldPurity
   image: string
   alt: string
   description: string
@@ -273,8 +254,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Gold Solitaire Ring',
       collection: 'Lustre Signature',
-      price: 24500,
-      compareAtPrice: 28900,
       image: '/rs 1.jpg',
       alt: 'Gold solitaire ring by Shree Yash Diamond and Jewels',
       description: 'A classic solitaire ring with a luminous centre stone for everyday elegance and milestone gifting.',
@@ -289,8 +268,8 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Diamond Halo Ring',
       collection: 'Moonlit Glow',
-      price: 32900,
-      compareAtPrice: 37900,
+      availablePurities: ['18K', '22K'],
+      defaultPurity: '18K',
       image: '/rs 2.jpg',
       alt: 'Diamond halo ring by Shree Yash Diamond and Jewels',
       description: 'A halo-set diamond ring crafted for refined bridal styling and celebratory gifting.',
@@ -303,8 +282,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Couple Ring Set',
       collection: 'Together Forever',
-      price: 41800,
-      compareAtPrice: 48900,
       image: '/rs 3.jpg',
       alt: 'Matching couple ring set by Shree Yash Diamond and Jewels',
       description: 'A matching pair of contemporary rings designed for couples and promise moments.',
@@ -319,8 +296,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Gold Tennis Bracelet',
       collection: 'Soft Shine',
-      price: 28600,
-      compareAtPrice: 32900,
       image: '/Gold Tennis Bracelet.webp',
       alt: 'Gold tennis bracelet by Shree Yash Diamond and Jewels',
       description: 'An elegant tennis bracelet with graceful sparkle, designed for refined everyday wear.',
@@ -333,8 +308,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Charm Bracelet',
       collection: 'Everyday Notes',
-      price: 19800,
-      compareAtPrice: 23900,
       image: '/charm.jpg',
       alt: 'Gold charm bracelet by Shree Yash Diamond and Jewels',
       description: 'A delicate charm bracelet that feels personal and effortless for everyday styling.',
@@ -346,8 +319,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Cuff Bracelet',
       collection: 'Statement Line',
-      price: 25400,
-      compareAtPrice: 29400,
       image: '/Cuff Bracelet.webp',
       alt: 'Gold cuff bracelet by Shree Yash Diamond and Jewels',
       description: 'A polished cuff bracelet with a broad silhouette ideal for layered festive styling.',
@@ -362,8 +333,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Drop Pendant',
       collection: 'Pearl Bloom',
-      price: 21600,
-      compareAtPrice: 24800,
       image: '/Pearl Drop Pendant.webp',
       alt: 'Pearl drop pendant by Shree Yash Diamond and Jewels',
       description: 'A luminous pearl pendant bringing softness and depth to elegant occasion wear.',
@@ -376,8 +345,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Diamond Heart Pendant',
       collection: 'Love Notes',
-      price: 23800,
-      compareAtPrice: 27800,
       image: '/Diamond Heart Pendant.jpg',
       alt: 'Diamond heart pendant by Shree Yash Diamond and Jewels',
       description: 'A romantic heart pendant with scintillating diamond detailing for meaningful gifting.',
@@ -390,8 +357,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Floral Pendant',
       collection: 'Petal Grace',
-      price: 20200,
-      compareAtPrice: 23900,
       image: '/Floral Pendant.jpg',
       alt: 'Floral pendant by Shree Yash Diamond and Jewels',
       description: 'A floral pendant balancing a delicate silhouette with a statement finish for festive evenings.',
@@ -405,8 +370,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Gold Hoop Earrings',
       collection: 'Daily Luxe',
-      price: 17200,
-      compareAtPrice: 20500,
       image: '/Gold Hoop Earrings.jpeg',
       alt: 'Gold hoop earrings by Shree Yash Diamond and Jewels',
       description: 'Minimal gold hoops that instantly elevate everyday styling with a luxe, polished finish.',
@@ -419,8 +382,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Drop Earrings',
       collection: 'Pearl Illumination',
-      price: 18900,
-      compareAtPrice: 21900,
       image: '/Pearl Drop Earrings.jpg',
       alt: 'Pearl drop earrings by Shree Yash Diamond and Jewels',
       description: 'Sophisticated pearl drops designed for weddings, festive dinners, and statement evenings.',
@@ -433,8 +394,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Jhumka Earrings',
       collection: 'Festive Drape',
-      price: 22400,
-      compareAtPrice: 26400,
       image: '/Jhumka Earrings.jpg',
       alt: 'Traditional jhumka earrings by Shree Yash Diamond and Jewels',
       description: 'Traditional jhumka styling with contemporary sparkle for vibrant occasion looks.',
@@ -449,8 +408,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Layer Necklace',
       collection: 'Ocean Glow',
-      price: 28100,
-      compareAtPrice: 32900,
       image: '/Pearl Layer Necklace.jpeg',
       alt: 'Pearl layer necklace by Shree Yash Diamond and Jewels',
       description: 'A layered pearl necklace with a graceful silhouette suited for modern festive styling.',
@@ -463,8 +420,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Emerald Charm Necklace',
       collection: 'Forest Luxe',
-      price: 31200,
-      compareAtPrice: 36900,
       image: '/Emerald Charm Necklace.webp',
       alt: 'Emerald charm necklace by Shree Yash Diamond and Jewels',
       description: 'An emerald-inspired statement necklace tailored for evening glamour and curated gifting.',
@@ -476,8 +431,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Minimal Chain Necklace',
       collection: 'Everyday Edit',
-      price: 16300,
-      compareAtPrice: 19200,
       image: '/Minimal Chain Necklace.avif',
       alt: 'Minimal chain necklace by Shree Yash Diamond and Jewels',
       description: 'A sleek minimal chain that pairs easily with both festive and everyday silhouettes.',
@@ -492,8 +445,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Rose Gold Bangle Set',
       collection: 'Blush Glow',
-      price: 27500,
-      compareAtPrice: 31900,
       image: '/Rose Gold Bangle Set.jpg',
       alt: 'Rose gold bangle set by Shree Yash Diamond and Jewels',
       description: 'A softly tinted bangle set with polished edges for graceful, layered styling.',
@@ -506,8 +457,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Wedding Bangle Stack',
       collection: 'Forever Wedding',
-      price: 34900,
-      compareAtPrice: 39900,
       image: '/Wedding Bangle Stack.jpg',
       alt: 'Wedding bangle stack by Shree Yash Diamond and Jewels',
       description: 'A statement bridal bangle stack designed to elevate traditional wedding styling.',
@@ -520,8 +469,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Polished Daily Bangle',
       collection: 'Everyday Charm',
-      price: 18400,
-      compareAtPrice: 21900,
       image: '/Polished Daily Bangle.jpg',
       alt: 'Polished daily bangle by Shree Yash Diamond and Jewels',
       description: 'A refined bangle designed for daily sparkle and gifting moments that feel personal.',
@@ -535,8 +482,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Diamond Anklet',
       collection: 'Footnotes',
-      price: 21400,
-      compareAtPrice: 24900,
       image: '/Diamond Anklet.jpg',
       alt: 'Diamond anklet by Shree Yash Diamond and Jewels',
       description: 'A refined anklet designed to add a soft shimmer to festive and evening styling.',
@@ -549,8 +494,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Anklet',
       collection: 'Soft Shore',
-      price: 19200,
-      compareAtPrice: 22900,
       image: '/Pearl Anklet.webp',
       alt: 'Pearl anklet by Shree Yash Diamond and Jewels',
       description: 'A feminine pearl anklet with a refined finish for easy festive layering.',
@@ -562,8 +505,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Gold Anklet',
       collection: 'Velvet Light',
-      price: 17600,
-      compareAtPrice: 20900,
       image: '/Gold Anklet.jpg',
       alt: 'Gold anklet by Shree Yash Diamond and Jewels',
       description: 'A minimal anklet made for everyday elegance with subtle warmth and polish.',
@@ -577,8 +518,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Delicate Gold Chain',
       collection: 'Minimal Glow',
-      price: 21400,
-      compareAtPrice: 24900,
       image: '/Delicate Gold Chain.webp',
       alt: 'Delicate gold chain by Shree Yash Diamond and Jewels',
       description: 'An everyday chain with a refined air of elegance that layers effortlessly with pendants.',
@@ -591,8 +530,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Statement Chain',
       collection: 'Bold Moderne',
-      price: 26800,
-      compareAtPrice: 30900,
       image: '/Statement Chain.avif',
       alt: 'Statement chain by Shree Yash Diamond and Jewels',
       description: 'A bolder chain profile designed for elevated festive dressing and layered styling.',
@@ -604,8 +541,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Layered Chain Set',
       collection: 'Stacked Luxe',
-      price: 29600,
-      compareAtPrice: 34100,
       image: '/Layered Chain Set.avif',
       alt: 'Layered chain set by Shree Yash Diamond and Jewels',
       description: 'A graceful layered chain set crafted for soft drama and polished modern styling.',
@@ -620,8 +555,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Jhumka Earrings',
       collection: 'Shaadi Glow',
-      price: 35600,
-      compareAtPrice: 40900,
       image: '/be 1.jpg',
       alt: 'Bridal jhumka earrings by Shree Yash Diamond and Jewels',
       description: 'Traditional jhumka styling elevated with premium sparkle for bridal celebrations.',
@@ -634,8 +567,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Chandbali',
       collection: 'Royal Wedding',
-      price: 38900,
-      compareAtPrice: 44900,
       image: '/be 2.jpg',
       alt: 'Bridal chandbali earrings by Shree Yash Diamond and Jewels',
       description: 'A regal chandbali design with a refined finish suited for festive bridal styling.',
@@ -647,8 +578,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Bridal Earrings',
       collection: 'Wedding Aura',
-      price: 34200,
-      compareAtPrice: 39800,
       image: '/be 3.webp',
       alt: 'Pearl bridal earrings by Shree Yash Diamond and Jewels',
       description: 'Pearl bridal earrings designed to frame a soft, elegant wedding look with luxe polish.',
@@ -662,8 +591,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Kangan Set',
       collection: 'Wedding Story',
-      price: 47600,
-      compareAtPrice: 54900,
       image: '/Bridal Kangan Set.jpg',
       alt: 'Bridal kangan set by Shree Yash Diamond and Jewels',
       description: 'A regal bridal bangle set made for festive, heirloom-inspired wedding styling.',
@@ -676,8 +603,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Kada',
       collection: 'Royal Grace',
-      price: 42900,
-      compareAtPrice: 49500,
       image: '/Bridal Kada.webp',
       alt: 'Bridal kada by Shree Yash Diamond and Jewels',
       description: 'A statement bridal kada with a graceful balance of traditional appeal and soft sparkle.',
@@ -690,8 +615,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Bangle Stack',
       collection: 'Heritage Shine',
-      price: 45600,
-      compareAtPrice: 52100,
       image: '/Bridal Bangle Stack.webp',
       alt: 'Bridal bangle stack by Shree Yash Diamond and Jewels',
       description: 'A bridal stack designed to create layered elegance with a rich, ceremonial finish.',
@@ -705,8 +628,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Choker Set',
       collection: 'Forever Bridal',
-      price: 52800,
-      compareAtPrice: 60900,
       image: '/Bridal Choker Set.jpg',
       alt: 'Bridal choker set by Shree Yash Diamond and Jewels',
       description: 'A statement choker set crafted to frame the neckline with luxe bridal detailing.',
@@ -719,8 +640,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Pearl Bridal Necklace',
       collection: 'Wedding Light',
-      price: 46200,
-      compareAtPrice: 52800,
       image: '/Pearl Bridal Necklace.avif',
       alt: 'Pearl bridal necklace by Shree Yash Diamond and Jewels',
       description: 'A soft pearl bridal necklace shaped for graceful, luminous reception styling.',
@@ -732,8 +651,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Pendant Necklace',
       collection: 'Heirloom Glow',
-      price: 49500,
-      compareAtPrice: 56900,
       image: '/Bridal Pendant Necklace.jpg',
       alt: 'Bridal pendant necklace by Shree Yash Diamond and Jewels',
       description: 'An elegant bridal pendant necklace crafted to sit beautifully with wedding couture.',
@@ -748,8 +665,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Maang Tikka',
       collection: 'Wedding Aura',
-      price: 22500,
-      compareAtPrice: 26400,
       image: '/Bridal Maang Tikka.webp',
       alt: 'Bridal maang tikka by Shree Yash Diamond and Jewels',
       description: 'An opulent maang tikka designed to bring a regal bridal finish to the forehead styling.',
@@ -761,8 +676,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Nath',
       collection: 'Royal Touch',
-      price: 19800,
-      compareAtPrice: 23900,
       image: '/Bridal Nath.jpg',
       alt: 'Bridal nath by Shree Yash Diamond and Jewels',
       description: 'A statement bridal nath designed to add a radiant, traditional finishing touch.',
@@ -774,8 +687,6 @@ const categoryProductCatalog: Record<string, Array<{
     {
       name: 'Bridal Toe Rings',
       collection: 'Blessed Beginnings',
-      price: 13800,
-      compareAtPrice: 16900,
       image: '/bridal toe ring.jpg',
       alt: 'Bridal toe rings by Shree Yash Diamond and Jewels',
       description: 'A delicate bridal toe ring set created for wedding ritual styling with a polished finish.',
@@ -787,14 +698,14 @@ const categoryProductCatalog: Record<string, Array<{
   ],
 }
 
-const additionalCategoryProducts: Product[] = Object.entries(categoryProductCatalog).flatMap(([category, entries]) =>
+const additionalCategoryProducts: ProductCatalogEntry[] = Object.entries(categoryProductCatalog).flatMap(([category, entries]) =>
   entries.map((entry, index) => ({
     id: `${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${entry.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${index + 1}`,
     name: entry.name,
     category,
     collection: entry.collection,
-    price: entry.price,
-    compareAtPrice: entry.compareAtPrice,
+    availablePurities: entry.availablePurities,
+    defaultPurity: entry.defaultPurity,
     image: entry.image,
     alt: entry.alt,
     description: entry.description,
@@ -808,7 +719,27 @@ const additionalCategoryProducts: Product[] = Object.entries(categoryProductCata
   })),
 )
 
-export const products: Product[] = [...existingProducts, ...additionalCategoryProducts]
+const purityAvailabilityByCategory: Record<string, GoldPurity[]> = {
+  Rings: ['14K', '18K', '22K'],
+  Bracelets: ['14K', '18K'],
+  Pendants: ['18K', '22K'],
+  Earrings: ['14K', '18K'],
+  Necklaces: ['18K', '22K'],
+  Bangles: ['14K', '18K', '22K'],
+  Anklets: ['14K', '18K'],
+  Chains: ['14K', '18K', '22K'],
+  'Bridal Earring': ['18K', '22K'],
+  'Bridal Bangles': ['14K', '18K', '22K'],
+  'Bridal Necklace': ['18K', '22K'],
+  'Bridal Other Jewelleries': ['14K', '18K'],
+}
+
+export const products: Product[] = [...existingProducts, ...additionalCategoryProducts].map((product) => ({
+  ...product,
+  priceType: 'on-request',
+  availablePurities: product.availablePurities ?? purityAvailabilityByCategory[product.category] ?? ['18K'],
+  defaultPurity: product.defaultPurity ?? (/\b18K\b/i.test(product.material) ? '18K' : undefined),
+}))
 
 export const testimonials = [
   { id: 1, customerName: 'Riya S.', location: 'Mumbai', product: 'Celeste Diamond Ring', review: 'The design feels effortlessly premium and delicate. It arrived beautifully presented and exceeded my expectations.', rating: 5 },
