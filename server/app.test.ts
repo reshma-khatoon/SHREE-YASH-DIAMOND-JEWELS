@@ -105,6 +105,32 @@ describe('simple email API', () => {
     }, save)
   })
 
+  it('saves a customer cart lead with selected products, purity, and quantity', async () => {
+    const sendEmail = vi.fn().mockResolvedValue(undefined)
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(sendEmail, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/cart-leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer: { name: 'Test Customer', phone: '+919876543210', email: 'customer@example.com' },
+          items: orderBody.items,
+        }),
+      })
+      const payload = await response.json()
+      expect(response.status).toBe(201)
+      expect(payload.leadId).toBeTruthy()
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'cart',
+        leadId: payload.leadId,
+        receivedAt: expect.any(String),
+        customer: expect.objectContaining({ name: 'Test Customer', phone: '+919876543210' }),
+        items: [expect.objectContaining({ productId: 'celeste-diamond-ring', goldPurity: '18K', quantity: 2 })],
+      }))
+      expect(sendEmail.mock.calls[0][0].text).toContain('Customer requested contact')
+    }, save)
+  })
+
   it('keeps the submission accepted if email delivery fails', async () => {
     const sendEmail = vi.fn().mockRejectedValue(new Error('SMTP offline'))
     const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
@@ -117,6 +143,21 @@ describe('simple email API', () => {
       expect(response.status).toBe(201)
       expect((await response.json()).notificationStatus).toBe('failed')
       expect(save).toHaveBeenCalledOnce()
+    }, save)
+  })
+
+  it('does not report order success when saving the submission fails', async () => {
+    const sendEmail = vi.fn().mockResolvedValue(undefined)
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockRejectedValue(new Error('Disk unavailable'))
+    await withServer(sendEmail, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderBody),
+      })
+      expect(response.status).toBe(500)
+      expect((await response.json()).error).toContain('could not receive')
+      expect(sendEmail).not.toHaveBeenCalled()
     }, save)
   })
 
@@ -218,6 +259,30 @@ describe('simple email API', () => {
       })
       expect(blocked.status).toBe(403)
       expect((await blocked.json()).error).toBe('This website is not allowed to use the API.')
+      expect(save).toHaveBeenCalledTimes(2)
+    }, save)
+  })
+
+  it('allows an explicitly configured list of production Vercel and custom-domain origins', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('CLIENT_ORIGINS', 'https://shree-yash.vercel.app, https://jewels.example.com/')
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(vi.fn().mockResolvedValue(undefined), async (baseUrl) => {
+      for (const origin of ['https://shree-yash.vercel.app', 'https://jewels.example.com']) {
+        const response = await fetch(`${baseUrl}/api/contact`, {
+          method: 'POST',
+          headers: { Origin: origin, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', email: '', message: 'Please call.' }),
+        })
+        expect(response.status).toBe(201)
+        expect(response.headers.get('access-control-allow-origin')).toBe(origin)
+      }
+      const unlisted = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST',
+        headers: { Origin: 'https://other.vercel.app', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', email: '', message: 'Please call.' }),
+      })
+      expect(unlisted.status).toBe(403)
       expect(save).toHaveBeenCalledTimes(2)
     }, save)
   })

@@ -2,7 +2,7 @@ import { appendFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 export type SubmissionRecord = {
-  type: 'contact' | 'order'
+  type: 'cart' | 'contact' | 'order'
   receivedAt: string
   [key: string]: unknown
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
 
@@ -1021,10 +1021,50 @@ function ContactPage() {
 }
 
 function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[]; updateCartItem: (id: string, purity: GoldPurity, change: number) => void; onOrderPlaced: () => void }) {
+  const formRef = useRef<HTMLFormElement>(null)
   const [orderPlaced, setOrderPlaced] = useState(false)
   const [orderId, setOrderId] = useState('')
   const [orderStatus, setOrderStatus] = useState<'idle' | 'sending' | 'error'>('idle')
   const [orderError, setOrderError] = useState('')
+  const [cartLeadStatus, setCartLeadStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [cartLeadMessage, setCartLeadMessage] = useState('')
+
+  const saveCartLead = async () => {
+    const form = formRef.current
+    if (!form) return
+    const formData = new FormData(form)
+    const name = String(formData.get('name') ?? '').trim()
+    const phone = String(formData.get('phone') ?? '').trim()
+    if (!name || !phone) {
+      setCartLeadStatus('error')
+      setCartLeadMessage('Enter your name and phone number so our team can contact you.')
+      return
+    }
+
+    setCartLeadStatus('saving')
+    setCartLeadMessage('')
+    try {
+      const result = await postApi<{ notificationStatus: 'sent' | 'not_configured' | 'failed' }>('/api/cart-leads', {
+        customer: {
+          name,
+          phone,
+          email: String(formData.get('email') ?? '').trim(),
+        },
+        items: cart.map((item) => ({
+          productId: item.id,
+          goldPurity: item.selectedPurity,
+          quantity: item.quantity,
+        })),
+      })
+      setCartLeadStatus('saved')
+      setCartLeadMessage(result.notificationStatus === 'sent'
+        ? 'Your cart was saved and our team has been notified.'
+        : 'Your cart details were saved. Our team can contact you.')
+    } catch (error) {
+      setCartLeadStatus('error')
+      setCartLeadMessage(error instanceof Error ? error.message : 'We could not save your cart details. Please try again.')
+    }
+  }
 
   const handleOrderSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1082,7 +1122,7 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
         <p className="eyebrow">Checkout</p>
         <h1>Review Your Order</h1>
       </div>
-      <form className="checkout-layout" onSubmit={handleOrderSubmit}>
+      <form className="checkout-layout" ref={formRef} onSubmit={handleOrderSubmit}>
         <div className="checkout-card">
           <h3>Customer Details</h3>
           <div className="checkout-form-grid">
@@ -1123,6 +1163,10 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
             {orderStatus === 'sending' ? 'Placing order…' : 'Place Order'}
           </button>
           {orderStatus === 'error' && <p className="inquiry-error" role="alert">{orderError}</p>}
+          <button type="button" className="secondary-button" disabled={cart.length === 0 || cartLeadStatus === 'saving'} onClick={() => void saveCartLead()}>
+            {cartLeadStatus === 'saving' ? 'Saving cart…' : 'Save Cart & Request a Call'}
+          </button>
+          {cartLeadMessage && <p className={cartLeadStatus === 'error' ? 'inquiry-error' : 'success-copy'} role={cartLeadStatus === 'error' ? 'alert' : 'status'}>{cartLeadMessage}</p>}
         </aside>
       </form>
     </section>

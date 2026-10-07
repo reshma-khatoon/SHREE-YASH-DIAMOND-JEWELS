@@ -3,7 +3,7 @@ import express from 'express'
 import nodemailer from 'nodemailer'
 import { products } from '../src/data'
 import { saveSubmission, type SubmissionRecord } from './submissions'
-import { contactSchema, orderSchema } from './validation'
+import { cartLeadSchema, contactSchema, orderSchema } from './validation'
 
 type EmailMessage = { subject: string; text: string }
 type EmailSender = (message: EmailMessage) => Promise<void>
@@ -11,22 +11,34 @@ type SubmissionSaver = (record: SubmissionRecord) => Promise<void>
 
 type NotificationStatus = 'sent' | 'not_configured' | 'failed'
 
-function isAllowedOrigin(origin: string, configuredOrigin: string) {
-  if (origin === configuredOrigin) return true
+function normalizeOrigin(origin: string) {
+  try {
+    return new URL(origin).origin
+  } catch {
+    return ''
+  }
+}
+
+function isAllowedOrigin(origin: string, configuredOrigins: string[]) {
+  const normalizedOrigin = normalizeOrigin(origin)
+  if (!normalizedOrigin) return false
+  if (configuredOrigins.some((configuredOrigin) => normalizeOrigin(configuredOrigin) === normalizedOrigin)) return true
   if (process.env.NODE_ENV === 'production') return false
 
-  try {
-    const requestOrigin = new URL(origin)
-    const expectedOrigin = new URL(configuredOrigin)
-    const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
-    return requestOrigin.protocol === 'http:'
-      && expectedOrigin.protocol === 'http:'
-      && requestOrigin.port === expectedOrigin.port
-      && loopbackHosts.has(requestOrigin.hostname)
-      && loopbackHosts.has(expectedOrigin.hostname)
-  } catch {
-    return false
-  }
+  const requestOrigin = new URL(normalizedOrigin)
+  const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+  return requestOrigin.protocol === 'http:'
+    && configuredOrigins.some((configuredOrigin) => {
+      try {
+        const expectedOrigin = new URL(configuredOrigin)
+        return expectedOrigin.protocol === 'http:'
+          && requestOrigin.port === expectedOrigin.port
+          && loopbackHosts.has(requestOrigin.hostname)
+          && loopbackHosts.has(expectedOrigin.hostname)
+      } catch {
+        return false
+      }
+    })
 }
 
 function emailIsConfigured() {
@@ -69,8 +81,12 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
 
   app.use((request, response, next) => {
     const origin = request.headers.origin
-    const allowedOrigin = process.env.CLIENT_ORIGIN
-    if (origin && allowedOrigin && !isAllowedOrigin(origin, allowedOrigin)) {
+    const configuredOrigins = (process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || '')
+      .split(',')
+      .map((configuredOrigin) => configuredOrigin.trim())
+      .filter(Boolean)
+    if (origin && (configuredOrigins.length === 0 && process.env.NODE_ENV === 'production'
+      || configuredOrigins.length > 0 && !isAllowedOrigin(origin, configuredOrigins))) {
       response.status(403).json({ error: 'This website is not allowed to use the API.' })
       return
     }
@@ -120,6 +136,68 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
   }
 
   app.post('/api/contact', contactHandler)
+
+  app.post('/api/cart-leads', async (request, response, next) => {
+    const parsed = cartLeadSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Please enter your name and phone number and check the cart items.' })
+      return
+    }
+
+    const cartLead = parsed.data
+    const items = cartLead.items.map((item) => {
+      const product = products.find((entry) => entry.id === item.productId)
+      if (!product || !product.availablePurities?.includes(item.goldPurity)) return null
+      return { product, goldPurity: item.goldPurity, quantity: item.quantity }
+    })
+    if (items.some((item) => item === null)) {
+      response.status(400).json({ error: 'A product or gold type in your cart is not available.' })
+      return
+    }
+
+    const validItems = items.filter((item): item is NonNullable<typeof item> => item !== null)
+    const receivedAt = new Date()
+    const leadId = randomUUID()
+    const itemLines = validItems.map(({ product, goldPurity, quantity }) =>
+      `${product.name} (${product.id}) — ${goldPurity}, quantity ${quantity}`).join('\n')
+    const text = [
+      'Customer requested contact about their jewellery cart.',
+      '',
+      `Name: ${cartLead.customer.name}`,
+      `Phone: ${cartLead.customer.phone}`,
+      `Email: ${cartLead.customer.email || 'Not provided'}`,
+      '',
+      'Cart:',
+      itemLines,
+      `Date/time: ${formatDate(receivedAt)} (Asia/Kolkata)`,
+    ].join('\n')
+
+    try {
+      await save({
+        type: 'cart',
+        leadId,
+        receivedAt: receivedAt.toISOString(),
+        customer: cartLead.customer,
+        items: validItems.map(({ product, goldPurity, quantity }) => ({
+          productId: product.id,
+          productName: product.name,
+          productImage: product.image,
+          category: product.category,
+          goldPurity,
+          quantity,
+        })),
+      })
+    } catch (error) {
+      next(error)
+      return
+    }
+
+    const notificationStatus = await notifyOwner(sendEmail, {
+      subject: 'Customer wants to be contacted about their cart',
+      text,
+    })
+    response.status(201).json({ ok: true, leadId, notificationStatus, message: 'Your cart details have been saved.' })
+  })
 
   app.post('/api/orders', async (request, response, next) => {
     const parsed = orderSchema.safeParse(request.body)
