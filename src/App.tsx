@@ -8,30 +8,18 @@ type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => vo
 const fallbackJewelleryImage = 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=1200&q=80'
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
-async function postApi<T>(path: string, payload: unknown, requestKey?: string): Promise<T> {
+async function postApi<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(requestKey ? { 'Idempotency-Key': requestKey } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  if (!response.ok) throw new Error('request_failed')
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    const message = payload?.error || `Request failed (${response.status}).`
+    throw new Error(payload?.requestId ? `${message} (Reference: ${payload.requestId})` : message)
+  }
   return response.json() as Promise<T>
-}
-
-function getIdempotencyKey(storageKey: string) {
-  const keyName = `shreeYashIdempotency:${storageKey}`
-  const existing = window.sessionStorage.getItem(keyName)
-  if (existing) return existing
-  const key = crypto.randomUUID()
-  window.sessionStorage.setItem(keyName, key)
-  return key
-}
-
-function clearIdempotencyKey(storageKey: string) {
-  window.sessionStorage.removeItem(`shreeYashIdempotency:${storageKey}`)
 }
 
 function ScrollToTop() {
@@ -117,25 +105,6 @@ function App() {
     writeStorage('shreeYashWishlistPurities', wishlistPurities)
   }, [wishlistPurities])
 
-  useEffect(() => {
-    try {
-      const storageKey = 'shreeYashVisitorSessionId'
-      let sessionId = window.sessionStorage.getItem(storageKey)
-      if (!sessionId) {
-        sessionId = crypto.randomUUID()
-        window.sessionStorage.setItem(storageKey, sessionId)
-      }
-      void postApi('/api/visitors', {
-        sessionId,
-        page: location.pathname,
-        device: navigator.userAgent.slice(0, 300),
-        referrer: document.referrer,
-      }).catch(() => undefined)
-    } catch {
-      // Visitor tracking must never block site navigation.
-    }
-  }, [location.pathname])
-
   const addToCart: AddToCart = (product, selectedPurity, quantity = 1) => {
     setCart((current: CartItem[]) => {
       const existing = current.find((item: CartItem) => item.id === product.id && item.selectedPurity === selectedPurity)
@@ -176,6 +145,7 @@ function App() {
       }
       return purity ? { ...current, [id]: purity } : current
     })
+
   }
 
   const updateWishlistPurity = (id: string, purity: GoldPurity) => {
@@ -938,15 +908,15 @@ function PriceInquiryForm({ product, purity, onClose, whatsappHref }: { product:
     setStatus('sending')
     const formData = new FormData(event.currentTarget)
     try {
-      await postApi('/api/price-inquiries', {
+      await postApi('/api/contact', {
         name: String(formData.get('name') ?? '').trim(),
         phone: String(formData.get('phone') ?? '').trim(),
         email: String(formData.get('email') ?? '').trim(),
         productId: product.id,
+        productName: product.name,
         goldPurity: purity,
         message: String(formData.get('message') ?? '').trim(),
-      }, getIdempotencyKey(`price-${product.id}`))
-      clearIdempotencyKey(`price-${product.id}`)
+      })
       setStatus('sent')
     } catch {
       setStatus('error')
@@ -997,13 +967,12 @@ function ContactPage() {
     setStatus('sending')
     const formData = new FormData(event.currentTarget)
     try {
-      await postApi('/api/inquiries', {
+      await postApi('/api/contact', {
         name: String(formData.get('name') ?? '').trim(),
         phone: String(formData.get('phone') ?? '').trim(),
         email: String(formData.get('email') ?? '').trim(),
         message: String(formData.get('message') ?? '').trim(),
-      }, getIdempotencyKey('contact'))
-      clearIdempotencyKey('contact')
+      })
       setStatus('sent')
     } catch {
       setStatus('error')
@@ -1055,6 +1024,7 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
   const [orderPlaced, setOrderPlaced] = useState(false)
   const [orderId, setOrderId] = useState('')
   const [orderStatus, setOrderStatus] = useState<'idle' | 'sending' | 'error'>('idle')
+  const [orderError, setOrderError] = useState('')
 
   const handleOrderSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1065,6 +1035,7 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
         name: String(formData.get('name') ?? '').trim(),
         phone: String(formData.get('phone') ?? '').trim(),
         email: String(formData.get('email') ?? '').trim(),
+        whatsapp: String(formData.get('whatsapp') ?? '').trim(),
         address: String(formData.get('address') ?? '').trim(),
         city: String(formData.get('city') ?? '').trim(),
         state: String(formData.get('state') ?? '').trim(),
@@ -1072,18 +1043,24 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
       },
       items: cart.map((item) => ({
         productId: item.id,
+        productName: item.name,
+        productImage: item.image,
+        category: item.category,
         goldPurity: item.selectedPurity,
         quantity: item.quantity,
+        priceStatus: 'Price on Request',
+        price: 'To be confirmed (Price on Request)',
       })),
     }
     try {
-      const result = await postApi<{ orderId: string }>('/api/orders', order, getIdempotencyKey('order'))
+      setOrderError('')
+      const result = await postApi<{ orderId: string }>('/api/orders', order)
       setOrderId(result.orderId)
-      clearIdempotencyKey('order')
       onOrderPlaced()
       setOrderPlaced(true)
-    } catch {
+    } catch (error) {
       setOrderStatus('error')
+      setOrderError(error instanceof Error ? error.message : 'We could not submit your order. Please try again or contact us.')
     }
   }
 
@@ -1092,7 +1069,7 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
       <section className="container section-block thank-you-page">
         <p className="eyebrow">Order placed</p>
         <h1>Thank you for your order.</h1>
-        <p>Thank you for your order! Your order has been received successfully. Our team will contact you shortly.</p>
+        <p>Your order has been received successfully. Our team will contact you shortly.</p>
         {orderId && <p>Order ID: <strong>{orderId}</strong></p>}
         <Link to="/shop" className="primary-button">Continue shopping</Link>
       </section>
@@ -1112,6 +1089,7 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
             <label>Full Name<input name="name" type="text" autoComplete="name" required /></label>
             <label>Email (optional)<input name="email" type="email" autoComplete="email" /></label>
             <label>Phone<input name="phone" type="tel" autoComplete="tel" required /></label>
+            <label>WhatsApp (optional)<input name="whatsapp" type="tel" autoComplete="tel" /></label>
             <label>Address<textarea name="address" rows={3} autoComplete="street-address" required /></label>
             <label>City<input name="city" autoComplete="address-level2" required /></label>
             <label>State<input name="state" autoComplete="address-level1" required /></label>
@@ -1142,9 +1120,9 @@ function CheckoutPage({ cart, updateCartItem, onOrderPlaced }: { cart: CartItem[
             <div className="grand-total"><span>Price</span><strong>To be confirmed</strong></div>
           </div>
           <button type="submit" className="primary-button" disabled={cart.length === 0 || orderStatus === 'sending'}>
-            {orderStatus === 'sending' ? 'Submitting…' : 'Place Order'}
+            {orderStatus === 'sending' ? 'Placing order…' : 'Place Order'}
           </button>
-          {orderStatus === 'error' && <p className="inquiry-error" role="alert">We could not submit your order. Please try again shortly.</p>}
+          {orderStatus === 'error' && <p className="inquiry-error" role="alert">{orderError}</p>}
         </aside>
       </form>
     </section>
