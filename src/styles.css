@@ -56,7 +56,36 @@ img {
 
 #root { min-height: 100vh; }
 
-.admin-login { max-width: 480px; margin: 0 auto; }
+.admin-nav-link {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.admin-nav-link svg { width: 18px; height: 18px; display: block; }
+.admin-login-page { max-width: 640px; padding-top: 48px; }
+.admin-login-page .page-heading { text-align: center; }
+.admin-login-page .page-heading > p:not(.eyebrow) { color: var(--muted); }
+.admin-login { width: 100%; max-width: 480px; margin: 0 auto; }
+.admin-login .primary-button { width: 100%; }
+.admin-password-field { position: relative; display: block; }
+.admin-password-field input { padding-right: 72px; }
+.admin-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.admin-password-toggle:hover { color: var(--ink); }
+.admin-password-toggle:focus-visible { outline: 2px solid var(--champagne); outline-offset: 3px; }
 .admin-toolbar, .admin-tabs, .admin-pagination, .admin-record-header {
   display: flex;
   flex-wrap: wrap;

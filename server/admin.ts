@@ -9,8 +9,9 @@ type TableName = typeof tableNames[number]
 type AdminStatus = 'new' | 'read' | 'replied'
 type Session = { accessToken: string; userId: string; expiresAt: number }
 type AdminDependencies = {
-  signIn: (email: string, password: string) => Promise<{ accessToken: string; userId: string; expiresAt: number } | null>
-  getUserId: (accessToken: string) => Promise<string | null>
+  signIn: (email: string, password: string) => Promise<{ accessToken: string; userId: string; email: string; expiresAt: number } | null>
+  getUser: (accessToken: string) => Promise<{ userId: string; email: string } | null>
+  isAdminEmail: (email: string) => Promise<boolean>
   signOut: (accessToken: string) => Promise<void>
   list: (table: TableName, offset: number) => Promise<unknown[]>
   update: (table: TableName, id: number, status: AdminStatus) => Promise<boolean>
@@ -31,16 +32,29 @@ const defaultDependencies: AdminDependencies = {
       if (error.status === 400 || error.status === 401) return null
       throw new Error(`Supabase authentication failed: ${error.message}`)
     }
-    if (!data.session || !data.session.expires_at) throw new Error('Supabase authentication returned no session')
-    return { accessToken: data.session.access_token, userId: data.user.id, expiresAt: data.session.expires_at * 1000 }
+    if (!data.session || !data.session.expires_at || !data.user.email) {
+      throw new Error('Supabase authentication returned no session or email')
+    }
+    return {
+      accessToken: data.session.access_token,
+      userId: data.user.id,
+      email: data.user.email,
+      expiresAt: data.session.expires_at * 1000,
+    }
   },
-  async getUserId(accessToken) {
+  async getUser(accessToken) {
     const { data, error } = await supabase.auth.getUser(accessToken)
     if (error) {
       if (error.status === 400 || error.status === 401 || error.status === 403) return null
       throw new Error(`Supabase session verification failed: ${error.message}`)
     }
-    return data.user?.id ?? null
+    if (!data.user?.email) return null
+    return { userId: data.user.id, email: data.user.email }
+  },
+  async isAdminEmail(email) {
+    const { data, error } = await supabase.from('admins').select('email')
+    if (error) throw new Error(`Could not verify admin account: ${error.message}`)
+    return data.some((admin) => typeof admin.email === 'string' && admin.email.trim().toLowerCase() === email.trim().toLowerCase())
   },
   async signOut(accessToken) {
     const { error } = await supabase.auth.admin.signOut(accessToken, 'local')
@@ -89,7 +103,7 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       res.status(401).json({ error: 'Invalid credentials or unauthorized account.' })
       return
     }
-    if (!deps.allowedUserIds().includes(auth.userId)) {
+    if (!deps.allowedUserIds().includes(auth.userId) || !await deps.isAdminEmail(auth.email)) {
       await deps.signOut(auth.accessToken)
       res.status(403).json({ error: 'Invalid credentials or unauthorized account.' })
       return
@@ -115,8 +129,11 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       res.status(401).json({ error: 'Please log in again.' })
       return
     }
-    const userId = await deps.getUserId(session.accessToken)
-    if (!userId || userId !== session.userId || !deps.allowedUserIds().includes(userId)) {
+    const user = await deps.getUser(session.accessToken)
+    if (!user
+      || user.userId !== session.userId
+      || !deps.allowedUserIds().includes(user.userId)
+      || !await deps.isAdminEmail(user.email)) {
       sessions.delete(token)
       res.status(401).json({ error: 'Please log in again.' })
       return
@@ -124,6 +141,10 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
     res.locals.adminToken = token
     res.locals.adminSession = session
     next()
+  })
+
+  router.get('/session', (_req, res) => {
+    res.json({ ok: true })
   })
 
   router.post('/logout', async (_req, res) => {

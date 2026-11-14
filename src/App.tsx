@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
-import AdminPage from './AdminPage'
+import AdminPage, { AdminLoginPage } from './AdminPage'
 
 type CartItem = Product & { quantity: number; selectedPurity: GoldPurity }
 type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => void
@@ -175,7 +175,9 @@ function App() {
           <Route path="/product/:productId" element={<ProductDetailPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} wishlistPurities={wishlistPurities} updateWishlistPurity={updateWishlistPurity} />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/checkout" element={<CheckoutPage cart={cart} updateCartItem={updateCartItem} onOrderPlaced={() => { setCart([]); setCartOpen(false) }} />} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/*" element={<Navigate to="/admin/login" replace />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
@@ -240,6 +242,18 @@ function Header({ cartCount, onCartClick, wishlistCount }: { cartCount: number; 
               </NavLink>
             )
           })}
+          <NavLink
+            to="/admin/login"
+            className={({ isActive }) => (isActive ? 'nav-link admin-nav-link active' : 'nav-link admin-nav-link')}
+            aria-label="Admin login"
+            title="Admin login"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3 19 6v5.1c0 4.7-2.9 7.8-7 9.9-4.1-2.1-7-5.2-7-9.9V6l7-3Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              <circle cx="12" cy="9.8" r="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M8.8 16.8c.6-1.6 1.7-2.4 3.2-2.4s2.6.8 3.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </NavLink>
         </nav>
         <div className="header-actions">
           <button

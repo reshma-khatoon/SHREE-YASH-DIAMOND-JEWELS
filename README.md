@@ -27,13 +27,13 @@ The contact form, saved-cart requests, and orders are saved to Supabase before a
 
 The Supabase URL is available in the project dashboard's Connect or API settings. The legacy `service_role` key is in Project Settings → API Keys → Legacy API Keys. It bypasses row-level security and must remain on the backend. Run `npx tsx server\test-supabase.ts` for a read-only connection check.
 
-## Admin dashboard
+## Admin sign-in and dashboard
 
 1. Review and apply `supabase/migrations/003_admin_dashboard.sql` in the Supabase SQL Editor for the project. It adds a separate `admin_status` to the three existing tables, enables RLS, and revokes direct client access. It does not change order fulfilment status. Do not rerun migrations 001 or 002 for this setup. The submission API uses the service role and remains responsible for writes.
-2. In Authentication → Users, copy the existing admin user's UID to the backend `.env` as `ADMIN_USER_IDS=<uid>`. Separate multiple explicitly authorized user UIDs with commas. No registration system is provided. Set `SUPABASE_ANON_KEY` to the project's public anon key (or keep the existing `VITE_SUPABASE_ANON_KEY`). Never put the service role key in a `VITE_` variable.
-3. Restart the backend and open `/admin` in the website. Sign in with the existing Supabase Auth email and password. Admin APIs verify the Supabase user and the configured UID allow-list for every request. The dashboard's New/Read/Replied status is independent of order fulfilment status.
+2. The existing `public.admins` table authorizes accounts by email. In Authentication → Users, copy each authorized user's UID to the backend `.env` as `ADMIN_USER_IDS=<uid>`; separate multiple explicitly authorized UIDs with commas. A user must match both the UID allow-list and an email in `public.admins`. No registration system is provided. Set `SUPABASE_ANON_KEY` to the project's public anon key (or keep the existing `VITE_SUPABASE_ANON_KEY`). Never put the service role key in a `VITE_` variable.
+3. Restart the backend and open `/admin/login` (or use the Admin icon in the navbar). Sign in with an existing authorized Supabase Auth account. The frontend keeps only a short-lived server-issued session reference in per-tab `sessionStorage` so refreshes stay signed in; the backend revalidates the Supabase user, configured UID allow-list, and `public.admins` email on each admin API request. The dashboard's New/Read/Replied status is independent of order fulfilment status.
 
-Dashboard sessions and tokens are kept in server and browser memory only. They expire after at most one hour, are cleared on logout, and are lost after browser reload or server restart. This implementation requires a single backend instance; sessions do not share across instances. Use HTTPS wherever credentials and tokens travel over a network. The browser clears its token even if logout fails; if the request cannot reach the server, its session remains valid until expiry or server restart.
+Admin sessions expire after at most one hour and are cleared on logout. The server-side session registry is in memory, so sessions end after a backend restart and are not shared across instances. Use HTTPS wherever credentials and tokens travel over a network. The browser clears its session reference even if logout fails; if the request cannot reach the server, its server-side session remains valid until expiry or restart.
 
 ## Email configuration
 

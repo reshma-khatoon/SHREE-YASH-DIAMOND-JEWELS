@@ -6,8 +6,11 @@ vi.mock('./supabase', () => ({ supabase: {} }))
 
 function setup() {
   const deps = {
-    signIn: vi.fn().mockResolvedValue({ accessToken: 'supabase-token', userId: 'admin-id', expiresAt: Date.now() + 60000 }),
-    getUserId: vi.fn().mockResolvedValue('admin-id'),
+    signIn: vi.fn().mockResolvedValue({
+      accessToken: 'supabase-token', userId: 'admin-id', email: 'admin@example.com', expiresAt: Date.now() + 60000,
+    }),
+    getUser: vi.fn().mockResolvedValue({ userId: 'admin-id', email: 'admin@example.com' }),
+    isAdminEmail: vi.fn().mockResolvedValue(true),
     signOut: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
     update: vi.fn().mockResolvedValue(true),
@@ -47,6 +50,8 @@ describe('admin authentication and APIs', () => {
     await withServer(async (base, deps) => {
       const token = await login(base)
       const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+      expect((await fetch(`${base}/session`, { headers })).status).toBe(200)
+      expect(deps.isAdminEmail).toHaveBeenCalledWith('admin@example.com')
       for (const table of ['inquiries', 'orders', 'cart_leads']) {
         expect((await fetch(`${base}/${table}`, { headers })).status).toBe(200)
         for (const status of ['new', 'read', 'replied']) {
@@ -65,18 +70,34 @@ describe('admin authentication and APIs', () => {
   it('rejects missing and invalid credentials and unauthorized users', async () => {
     await withServer(async (base, deps) => {
       expect((await fetch(`${base}/orders`)).status).toBe(401)
+      expect((await fetch(`${base}/session`)).status).toBe(401)
       expect((await fetch(`${base}/orders`, { headers: { Authorization: 'Bearer fake' } })).status).toBe(401)
       deps.signIn.mockResolvedValueOnce(null)
       expect((await fetch(`${base}/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'admin@example.com', password: 'bad' }),
       })).status).toBe(401)
-      deps.signIn.mockResolvedValueOnce({ accessToken: 'other', userId: 'other-id', expiresAt: Date.now() + 60000 })
+      deps.signIn.mockResolvedValueOnce({
+        accessToken: 'other', userId: 'other-id', email: 'other@example.com', expiresAt: Date.now() + 60000,
+      })
       expect((await fetch(`${base}/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'other@example.com', password: 'password' }),
       })).status).toBe(403)
       expect(deps.signOut).toHaveBeenCalledWith('other')
+      expect(deps.list).not.toHaveBeenCalled()
+    })
+  })
+
+  it('rejects authenticated users absent from the admins table', async () => {
+    await withServer(async (base, deps) => {
+      deps.isAdminEmail.mockResolvedValueOnce(false)
+      const response = await fetch(`${base}/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@example.com', password: 'password' }),
+      })
+      expect(response.status).toBe(403)
+      expect(deps.signOut).toHaveBeenCalledWith('supabase-token')
       expect(deps.list).not.toHaveBeenCalled()
     })
   })
@@ -90,10 +111,21 @@ describe('admin authentication and APIs', () => {
     })
   })
 
+  it('rechecks the admins table on every request', async () => {
+    await withServer(async (base, deps) => {
+      const token = await login(base)
+      deps.isAdminEmail.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      const headers = { Authorization: `Bearer ${token}` }
+      expect((await fetch(`${base}/session`, { headers })).status).toBe(200)
+      expect((await fetch(`${base}/orders`, { headers })).status).toBe(401)
+      expect(deps.list).not.toHaveBeenCalled()
+    })
+  })
+
   it('rejects a session when Supabase no longer validates the user', async () => {
     await withServer(async (base, deps) => {
       const token = await login(base)
-      deps.getUserId.mockResolvedValueOnce(null)
+      deps.getUser.mockResolvedValueOnce(null)
       const headers = { Authorization: `Bearer ${token}` }
       expect((await fetch(`${base}/cart_leads`, { headers })).status).toBe(401)
       expect((await fetch(`${base}/cart_leads`, { headers })).status).toBe(401)
