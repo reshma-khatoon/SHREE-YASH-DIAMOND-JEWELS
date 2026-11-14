@@ -977,21 +977,29 @@ function PriceInquiryForm({ product, purity, onClose, whatsappHref }: { product:
 
 function ContactPage() {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const submitting = useRef(false)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (submitting.current) return
+    submitting.current = true
+    const form = event.currentTarget
+    const formData = new FormData(form)
     setStatus('sending')
-    const formData = new FormData(event.currentTarget)
     try {
-      await postApi('/api/contact', {
+      const result = await postApi<{ ok: boolean }>('/api/contact', {
         name: String(formData.get('name') ?? '').trim(),
         phone: String(formData.get('phone') ?? '').trim(),
         email: String(formData.get('email') ?? '').trim(),
         message: String(formData.get('message') ?? '').trim(),
       })
+      if (result.ok !== true) throw new Error('The inquiry was not confirmed as saved.')
+      form.reset()
       setStatus('sent')
     } catch {
       setStatus('error')
+    } finally {
+      submitting.current = false
     }
   }
 
@@ -1013,19 +1021,19 @@ function ContactPage() {
         <form className="contact-form" onSubmit={handleSubmit}>
           <label>
             Name
-            <input name="name" type="text" placeholder="Your name" autoComplete="name" required />
+            <input name="name" type="text" placeholder="Your name" autoComplete="name" required disabled={status === 'sending'} />
           </label>
           <label>
             Phone
-            <input name="phone" type="tel" placeholder="Your phone number" autoComplete="tel" required />
+            <input name="phone" type="tel" placeholder="Your phone number" autoComplete="tel" required disabled={status === 'sending'} />
           </label>
           <label>
             Email
-            <input name="email" type="email" placeholder="Your email" autoComplete="email" required />
+            <input name="email" type="email" placeholder="Your email" autoComplete="email" required disabled={status === 'sending'} />
           </label>
           <label>
             Message
-            <textarea name="message" rows={5} placeholder="Tell us about your enquiry" required />
+            <textarea name="message" rows={5} placeholder="Tell us about your enquiry" required disabled={status === 'sending'} />
           </label>
           <button type="submit" className="primary-button" disabled={status === 'sending'}>{status === 'sending' ? 'Sending…' : 'Send Message'}</button>
           {status === 'sent' && <p className="success-copy" role="status">Thank you for contacting Shree Yash Diamond &amp; Jewels. Our team will get back to you shortly.</p>}

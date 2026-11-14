@@ -82,12 +82,17 @@ describe('simple email API', () => {
         }),
       })
       expect(response.status).toBe(201)
-      expect(await response.json()).toMatchObject({ ok: true, notificationStatus: 'sent' })
+      expect(await response.json()).toMatchObject({
+        ok: true, notificationStatus: 'sent', whatsappNotificationStatus: 'not_configured',
+      })
       expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
         subject: expect.stringContaining('contact'),
         text: expect.stringContaining('Please call me.'),
       }))
       expect(sendEmail.mock.calls[0][0].text).toContain('Date/time:')
+      expect(sendEmail.mock.calls[0][0].text).toContain('Name: Test Customer')
+      expect(sendEmail.mock.calls[0][0].text).toContain('Phone: +919876543210')
+      expect(sendEmail.mock.calls[0][0].text).toContain('Email: customer@example.com')
       expect(save).toHaveBeenCalledWith(expect.objectContaining({
         type: 'contact',
         name: 'Test Customer',
@@ -186,7 +191,8 @@ describe('simple email API', () => {
         body: JSON.stringify(orderBody),
       })
       expect(response.status).toBe(201)
-      expect((await response.json()).notificationStatus).toBe('failed')
+      const result = await response.json()
+      expect(result.notificationStatus).toBe('failed')
       expect(save).toHaveBeenCalledOnce()
     }, save)
   })
@@ -206,7 +212,9 @@ describe('simple email API', () => {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       expect(response.status).toBe(201)
-      expect((await response.json()).notificationStatus).toBe('failed')
+      const result = await response.json()
+      expect(result.notificationStatus).toBe('failed')
+      if (kind === 'contact') expect(result.whatsappNotificationStatus).toBe('not_configured')
       expect(save).toHaveBeenCalledOnce()
       expect(log).toHaveBeenCalledWith('Email notification failed:', {
         kind, code: 'EAUTH', command: 'AUTH', responseCode: 535,

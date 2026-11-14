@@ -132,7 +132,9 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
     }
 
     const notificationStatus = await notifyOwner('contact', sendEmail, { subject, text })
-    response.status(201).json({ ok: true, notificationStatus, message: 'Your message has been received.' })
+    response.status(201).json({
+      ok: true, notificationStatus, whatsappNotificationStatus: 'not_configured', message: 'Your message has been received.',
+    })
   }
 
   app.post('/api/contact', contactHandler)
