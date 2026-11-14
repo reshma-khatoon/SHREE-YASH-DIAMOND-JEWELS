@@ -7,6 +7,7 @@ import { saveSubmission, type SubmissionRecord } from './submissions.js'
 import { cartLeadSchema, contactSchema, orderSchema } from './validation.js'
 
 type EmailMessage = { subject: string; text: string }
+type NotificationKind = 'contact' | 'cart_lead' | 'order'
 type EmailSender = (message: EmailMessage) => Promise<void>
 type SubmissionSaver = (record: SubmissionRecord) => Promise<void>
 
@@ -40,10 +41,6 @@ function isAllowedOrigin(origin: string, configuredOrigins: string[]) {
         return false
       }
     })
-}
-
-function emailIsConfigured() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.OWNER_EMAIL)
 }
 
 function sendNotificationEmail({ subject, text }: EmailMessage) {
@@ -134,7 +131,7 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       return
     }
 
-    const notificationStatus = await notifyOwner(sendEmail, { subject, text })
+    const notificationStatus = await notifyOwner('contact', sendEmail, { subject, text })
     response.status(201).json({ ok: true, notificationStatus, message: 'Your message has been received.' })
   }
 
@@ -195,7 +192,7 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       return
     }
 
-    const notificationStatus = await notifyOwner(sendEmail, {
+    const notificationStatus = await notifyOwner('cart_lead', sendEmail, {
       subject: 'Customer wants to be contacted about their cart',
       text,
     })
@@ -277,7 +274,7 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       return
     }
 
-    const notificationStatus = await notifyOwner(sendEmail, { subject: `New jewellery order ${orderId}`, text })
+    const notificationStatus = await notifyOwner('order', sendEmail, { subject: `New jewellery order ${orderId}`, text })
     response.status(201).json({ ok: true, orderId, notificationStatus, message: 'Your order has been received successfully.' })
   })
 
@@ -303,13 +300,27 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
   return app
 }
 
-async function notifyOwner(sendEmail: EmailSender, message: EmailMessage): Promise<NotificationStatus> {
-  if (!emailIsConfigured()) return 'not_configured'
+async function notifyOwner(kind: NotificationKind, sendEmail: EmailSender, message: EmailMessage): Promise<NotificationStatus> {
+  const missing = (['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'OWNER_EMAIL'] as const)
+    .filter((name) => !process.env[name])
+  if (missing.length) {
+    console.warn('Email notification not configured:', { kind, missing })
+    return 'not_configured'
+  }
   try {
     await sendEmail(message)
     return 'sent'
   } catch (error) {
-    console.error('Email notification failed:', error)
+    const codes = ['EAUTH', 'ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS', 'ETLS', 'EENVELOPE', 'EMESSAGE', 'ECONFIG', 'ESTREAM']
+    const commands = ['CONN', 'AUTH', 'MAIL FROM', 'RCPT TO', 'DATA']
+    const details = typeof error === 'object' && error !== null ? error : {}
+    const code = 'code' in details && typeof details.code === 'string' && codes.includes(details.code) ? details.code : 'OTHER'
+    const command = 'command' in details && typeof details.command === 'string' && commands.includes(details.command)
+      ? details.command : undefined
+    const responseCode = 'responseCode' in details && typeof details.responseCode === 'number'
+      && Number.isInteger(details.responseCode) && details.responseCode >= 100 && details.responseCode <= 599
+      ? details.responseCode : undefined
+    console.error('Email notification failed:', { kind, code, command, responseCode })
     return 'failed'
   }
 }

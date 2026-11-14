@@ -53,6 +53,8 @@ Optional:
 
 Never expose SMTP credentials through `VITE_` variables.
 
+For notification troubleshooting, inspect `notificationStatus` in the submission API response: `not_configured` means required SMTP settings are missing, `failed` means the send failed, and `sent` means the SMTP server accepted the message, not that it reached the inbox. Runtime logs identify the submission type, missing setting names, and safe SMTP error codes without logging credentials or customer details. For Gmail, check the app password and account security when the code is `EAUTH`; for connection errors check the hostname, port, and function duration. Check Spam and the recipient address if the SMTP server accepted the email. Environment changes on Vercel require a redeployment.
+
 ## Deployment
 
 The Vercel project serves the Vite website and forwards `/api/*` through a Vercel Function to the **existing, separately hosted Express service**. It does not host the Express service itself. Deploy Express to a Node.js host such as Render, Railway, or a VPS:

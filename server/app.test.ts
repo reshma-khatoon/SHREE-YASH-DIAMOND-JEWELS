@@ -3,6 +3,10 @@ import { createApp } from './app'
 import type { SubmissionRecord } from './submissions'
 
 vi.mock('./supabase', () => ({ supabase: { from: vi.fn() } }))
+const mailMocks = vi.hoisted(() => ({ sendMail: vi.fn(), createTransport: vi.fn() }))
+vi.mock('nodemailer', () => ({
+  default: { createTransport: mailMocks.createTransport },
+}))
 
 const orderBody = {
   customer: {
@@ -18,7 +22,7 @@ const orderBody = {
 }
 
 async function withServer(
-  sendEmail: (message: { subject: string; text: string }) => Promise<void>,
+  sendEmail: ((message: { subject: string; text: string }) => Promise<void>) | undefined,
   run: (baseUrl: string) => Promise<void>,
   save: (record: SubmissionRecord) => Promise<void> = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined),
 ) {
@@ -39,6 +43,8 @@ describe('simple email API', () => {
     vi.stubEnv('SMTP_HOST', 'smtp.example.com')
     vi.stubEnv('SMTP_USER', 'owner@example.com')
     vi.stubEnv('SMTP_PASS', 'test-app-password')
+    mailMocks.sendMail.mockReset().mockResolvedValue({})
+    mailMocks.createTransport.mockReset().mockReturnValue({ sendMail: mailMocks.sendMail })
   })
 
   afterEach(() => {
@@ -76,7 +82,7 @@ describe('simple email API', () => {
         }),
       })
       expect(response.status).toBe(201)
-      expect((await response.json()).ok).toBe(true)
+      expect(await response.json()).toMatchObject({ ok: true, notificationStatus: 'sent' })
       expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
         subject: expect.stringContaining('contact'),
         text: expect.stringContaining('Please call me.'),
@@ -93,6 +99,29 @@ describe('simple email API', () => {
     }, save)
   })
 
+  it.each([
+    ['465', true],
+    ['587', false],
+  ])('uses the real notification sender with SMTP port %s', async (port, secure) => {
+    vi.stubEnv('SMTP_PORT', port)
+    vi.stubEnv('MAIL_FROM', '')
+    await withServer(undefined, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }),
+      })
+      expect(response.status).toBe(201)
+      expect((await response.json()).notificationStatus).toBe('sent')
+      expect(mailMocks.createTransport).toHaveBeenCalledWith(expect.objectContaining({
+        host: 'smtp.example.com', port: Number(port), secure,
+        auth: { user: 'owner@example.com', pass: 'test-app-password' },
+      }))
+      expect(mailMocks.sendMail).toHaveBeenCalledWith(expect.objectContaining({
+        from: 'owner@example.com', to: 'owner@example.com', subject: 'New website contact inquiry',
+      }))
+    })
+  })
+
   it('emails complete order details after saving the order', async () => {
     const sendEmail = vi.fn().mockResolvedValue(undefined)
     const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
@@ -104,6 +133,7 @@ describe('simple email API', () => {
       })
       const payload = await response.json()
       expect(response.status).toBe(201)
+      expect(payload.notificationStatus).toBe('sent')
       expect(payload.orderId).toMatch(/^SYDJ-\d{4}-[A-F0-9]{8}$/)
       expect(sendEmail.mock.calls[0][0].text).toContain('Celeste Diamond Ring')
       expect(sendEmail.mock.calls[0][0].text).toContain('Diamond details:')
@@ -133,6 +163,7 @@ describe('simple email API', () => {
       })
       const payload = await response.json()
       expect(response.status).toBe(201)
+      expect(payload.notificationStatus).toBe('sent')
       expect(payload.leadId).toBeTruthy()
       expect(save).toHaveBeenCalledWith(expect.objectContaining({
         type: 'cart',
@@ -161,6 +192,31 @@ describe('simple email API', () => {
   })
 
   it.each([
+    ['/api/contact', { name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }, 'contact'],
+    ['/api/cart-leads', { customer: orderBody.customer, items: orderBody.items }, 'cart_lead'],
+    ['/api/orders', orderBody, 'order'],
+  ])('logs safe SMTP failures without discarding %s', async (route, body, kind) => {
+    const error = Object.assign(new Error('secret-password customer@example.com'), {
+      code: 'EAUTH', command: 'AUTH', responseCode: 535, response: 'secret-password customer@example.com',
+    })
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(vi.fn().mockRejectedValue(error), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${route}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      expect(response.status).toBe(201)
+      expect((await response.json()).notificationStatus).toBe('failed')
+      expect(save).toHaveBeenCalledOnce()
+      expect(log).toHaveBeenCalledWith('Email notification failed:', {
+        kind, code: 'EAUTH', command: 'AUTH', responseCode: 535,
+      })
+      expect(JSON.stringify(log.mock.calls)).not.toContain('secret-password')
+      expect(JSON.stringify(log.mock.calls)).not.toContain('customer@example.com')
+    }, save)
+  })
+
+  it.each([
     ['/api/contact', { name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }],
     ['/api/cart-leads', { customer: orderBody.customer, items: orderBody.items }],
     ['/api/orders', orderBody],
@@ -185,6 +241,7 @@ describe('simple email API', () => {
     vi.stubEnv('SMTP_USER', '')
     vi.stubEnv('SMTP_PASS', '')
     const sendEmail = vi.fn().mockResolvedValue(undefined)
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
 
     await withServer(sendEmail, async (baseUrl) => {
@@ -205,6 +262,9 @@ describe('simple email API', () => {
       expect((await orderResponse.json()).notificationStatus).toBe('not_configured')
       expect(save).toHaveBeenCalledTimes(2)
       expect(sendEmail).not.toHaveBeenCalled()
+      expect(log).toHaveBeenCalledWith('Email notification not configured:', {
+        kind: 'contact', missing: ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'OWNER_EMAIL'],
+      })
     }, save)
   })
 
