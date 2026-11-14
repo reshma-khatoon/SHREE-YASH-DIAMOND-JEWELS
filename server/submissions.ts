@@ -1,6 +1,6 @@
 import type { z } from 'zod'
-import { supabase } from './supabase'
-import type { cartLeadSchema, contactSchema, orderSchema } from './validation'
+import { supabase } from './supabase.js'
+import type { cartLeadSchema, contactSchema, orderSchema } from './validation.js'
 
 type CartItem = {
   productId: string

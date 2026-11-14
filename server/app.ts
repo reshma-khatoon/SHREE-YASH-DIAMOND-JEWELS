@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import express from 'express'
 import nodemailer from 'nodemailer'
-import { products } from '../src/data'
-import { createAdminRouter } from './admin'
-import { saveSubmission, type SubmissionRecord } from './submissions'
-import { cartLeadSchema, contactSchema, orderSchema } from './validation'
+import { products } from '../src/data.js'
+import { createAdminRouter } from './admin.js'
+import { saveSubmission, type SubmissionRecord } from './submissions.js'
+import { cartLeadSchema, contactSchema, orderSchema } from './validation.js'
 
 type EmailMessage = { subject: string; text: string }
 type EmailSender = (message: EmailMessage) => Promise<void>

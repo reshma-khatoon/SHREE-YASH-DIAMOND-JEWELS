@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
-import { supabase } from './supabase'
+import { supabase } from './supabase.js'
 
 const tableNames = ['inquiries', 'orders', 'cart_leads'] as const
 type TableName = typeof tableNames[number]
