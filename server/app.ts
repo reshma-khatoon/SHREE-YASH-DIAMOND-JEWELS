@@ -281,9 +281,17 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
     response.status(201).json({ ok: true, orderId, notificationStatus, message: 'Your order has been received successfully.' })
   })
 
+  app.use('/api', (_request, response) => {
+    response.status(404).json({ error: 'API route not found.' })
+  })
+
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     if (error instanceof SyntaxError && 'body' in error) {
       response.status(400).json({ error: 'Please submit valid JSON.' })
+      return
+    }
+    if (error instanceof Error && 'status' in error && error.status === 413) {
+      response.status(413).json({ error: 'Request body is too large.' })
       return
     }
     console.error('API request failed:', error)

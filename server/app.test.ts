@@ -46,6 +46,21 @@ describe('simple email API', () => {
     vi.unstubAllEnvs()
   })
 
+  it('returns JSON for missing API routes and oversized JSON requests', async () => {
+    await withServer(vi.fn(), async (baseUrl) => {
+      const missing = await fetch(`${baseUrl}/api/unknown`)
+      expect(missing.status).toBe(404)
+      expect(await missing.json()).toEqual({ error: 'API route not found.' })
+
+      const oversized = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'x'.repeat(21 * 1024) }),
+      })
+      expect(oversized.status).toBe(413)
+      expect(await oversized.json()).toEqual({ error: 'Request body is too large.' })
+    })
+  })
+
   it('saves and emails contact form details and date/time', async () => {
     const sendEmail = vi.fn().mockResolvedValue(undefined)
     const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)

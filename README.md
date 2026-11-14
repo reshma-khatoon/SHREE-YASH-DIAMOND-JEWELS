@@ -1,6 +1,6 @@
 # Shree Yash Diamond & Jewels
 
-The storefront uses a small Express API. It saves valid contact and product enquiries to Supabase `inquiries`, cart leads to `cart_leads`, and orders to `orders`. Email notifications are optional: without SMTP credentials, requests are still accepted and saved, and email sending becomes active once credentials are configured. There is no admin login, payment processing, SMS provider, or analytics backend.
+The storefront uses a small Express API. It saves valid contact and product enquiries to Supabase `inquiries`, cart leads to `cart_leads`, and orders to `orders`. Email notifications are optional: without SMTP credentials, requests are still accepted and saved, and email sending becomes active once credentials are configured. Admin login uses existing Supabase Auth accounts; there is no payment processing, SMS provider, or analytics backend.
 
 ## Run locally
 
@@ -48,20 +48,22 @@ Optional backend variables:
 Optional:
 
 - `MAIL_FROM`: sender display name/address.
-- `CLIENT_ORIGINS`: comma-separated exact frontend origins allowed to call the API, e.g. `https://your-site.vercel.app,https://www.yourdomain.com`. Production checks each origin exactly. Local development accepts both `localhost` and `127.0.0.1` on the configured port.
-- `VITE_API_BASE_URL`: empty locally; for production frontend builds, set this to the deployed Express API origin.
+- `CLIENT_ORIGINS`: comma-separated exact frontend origins allowed to call the API, e.g. `https://your-site.vercel.app,https://www.yourdomain.com`. Production checks each origin exactly, including requests forwarded by the Vercel proxy. Local development accepts both `localhost` and `127.0.0.1` on the configured port.
+- `VITE_API_BASE_URL`: leave empty locally and for the recommended same-origin Vercel proxy. Set it at frontend build time to the separate Express API's HTTPS origin only if intentionally bypassing the proxy.
 
 Never expose SMTP credentials through `VITE_` variables.
 
 ## Deployment
 
-The Vercel project serves the Vite website only. Deploy the Express service separately to a Node.js host such as Render, Railway, or a VPS:
+The Vercel project serves the Vite website and forwards `/api/*` through a Vercel Function to the **existing, separately hosted Express service**. It does not host the Express service itself. Deploy Express to a Node.js host such as Render, Railway, or a VPS:
 
-- Build command: `npm install`
-- Start command: `npm start`
-- Set `CLIENT_ORIGINS` to the exact Vercel website origin(s) in that service's environment settings. Add the production domain and any preview domain you actually use; separate values with commas. Set the SMTP settings later when credentials are available.
-- Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as backend environment variables; never place the service role key in Vercel frontend variables.
-- In Vercel → Project Settings → Environment Variables, set `VITE_API_BASE_URL` to the Express service's HTTPS URL (for example `https://your-api.onrender.com`) for Production and Preview as needed, then redeploy the website so the frontend bundle uses that URL.
+- Build command: `npm install`; start command: `npm start`. The admin session registry is in memory, so use one long-running backend instance, not serverless instances or multiple replicas.
+- On the Express host, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` (or the existing `VITE_SUPABASE_ANON_KEY`), `ADMIN_USER_IDS`, and `CLIENT_ORIGINS`. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`. Add exact production and preview website origins to `CLIENT_ORIGINS`. Set SMTP variables only if notifications are required.
+- In Vercel → Project Settings → Environment Variables, set `API_BACKEND_ORIGIN` to the Express service's **HTTPS origin**, for example `https://your-api.onrender.com`, with no path or `/api`. Set it separately for Production and Preview as needed. Leave `VITE_API_BASE_URL` empty for the same-origin proxy. `API_BACKEND_ORIGIN` is a runtime setting, not a credential; never put the service role key or SMTP credentials in any `VITE_` variable.
+- If an existing `VITE_API_BASE_URL` is set in Vercel, the frontend sends requests directly to that origin instead of through the proxy. Remove it or leave it empty to use the proxy; alternatively keep it pointed at the same Express service and configure CORS accordingly.
+- Redeploy Vercel after setting variables or changing this configuration. Redeploy/restart the Express service after backend changes or environment changes. Vercel's environment settings do not automatically configure the separate backend.
+
+After deployment, `POST /api/admin/login` with `{}` should return a JSON 400 validation error, and unauthenticated `GET /api/admin/session` should return JSON 401. These checks do not require credentials or modify customer data. A real login requires the configured Supabase project and authorized account; verify login, refresh, logout, and denied access for an unauthorized user. If a proxy request returns 503, check `API_BACKEND_ORIGIN`; for 502, inspect Vercel Function logs and backend availability without sharing credentials.
 
 Existing local JSONL files are not imported automatically. If SMTP is not configured, the backend still saves and acknowledges submissions; notification emails begin only after valid credentials are set.
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { adminRequest, AdminRequestError } from './adminApi'
 
 type TableName = 'inquiries' | 'orders' | 'cart_leads'
 type AdminStatus = 'new' | 'read' | 'replied'
@@ -10,19 +11,12 @@ type RecordData = {
   [key: string]: unknown
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 const sessionStorageKey = 'shreeYashAdminSession'
 const sections: { value: TableName; label: string }[] = [
   { value: 'inquiries', label: 'Enquiries' },
   { value: 'orders', label: 'Orders' },
   { value: 'cart_leads', label: 'Cart requests' },
 ]
-
-class AdminRequestError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message)
-  }
-}
 
 function storedAdminToken(): string {
   try {
@@ -38,22 +32,6 @@ function clearStoredAdminToken() {
   } catch {
     // The in-memory token is still cleared; it cannot authorize another request without server validation.
   }
-}
-
-async function adminRequest<T>(path: string, token?: string, method = 'GET', body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
-  if (token) headers.Authorization = `Bearer ${token}`
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const response = await fetch(`${apiBaseUrl}/api/admin${path}`, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store',
-  })
-  const data: unknown = await response.json()
-  if (!response.ok) {
-    const message = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
-      ? data.error : `Request failed (${response.status}).`
-    throw new AdminRequestError(message, response.status)
-  }
-  return data as T
 }
 
 function details(value: unknown): string {
