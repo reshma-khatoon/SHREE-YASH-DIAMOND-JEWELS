@@ -43,7 +43,13 @@ describe('simple email API', () => {
     vi.stubEnv('SMTP_HOST', 'smtp.example.com')
     vi.stubEnv('SMTP_USER', 'owner@example.com')
     vi.stubEnv('SMTP_PASS', 'test-app-password')
-    mailMocks.sendMail.mockReset().mockResolvedValue({})
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', '')
+    vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '')
+    vi.stubEnv('WHATSAPP_OWNER_NUMBER', '')
+    vi.stubEnv('WHATSAPP_TEMPLATE_NAME', '')
+    vi.stubEnv('WHATSAPP_TEMPLATE_LANGUAGE', '')
+    vi.stubEnv('WHATSAPP_API_VERSION', '')
+    mailMocks.sendMail.mockReset().mockResolvedValue({ accepted: ['owner@example.com'], rejected: [] })
     mailMocks.createTransport.mockReset().mockReturnValue({ sendMail: mailMocks.sendMail })
   })
 
@@ -105,6 +111,64 @@ describe('simple email API', () => {
   })
 
   it.each([
+    ['failed', 'sent'],
+    ['sent', 'failed'],
+  ] as const)('saves contact and reports email %s and WhatsApp %s independently', async (emailStatus, whatsappStatus) => {
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-token')
+    vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '123456')
+    vi.stubEnv('WHATSAPP_OWNER_NUMBER', '919876543210')
+    vi.stubEnv('WHATSAPP_TEMPLATE_NAME', 'new_enquiry')
+    vi.stubEnv('WHATSAPP_TEMPLATE_LANGUAGE', 'en')
+    vi.stubEnv('WHATSAPP_API_VERSION', 'v99.0')
+    const nativeFetch = globalThis.fetch
+    const providerFetch = vi.fn().mockResolvedValue(whatsappStatus === 'sent'
+      ? new Response(JSON.stringify({ messages: [{ id: 'wamid.test' }] }), { status: 200 })
+      : new Response(JSON.stringify({ error: { code: 190 } }), { status: 401 }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => String(input).startsWith('https://graph.facebook.com/')
+      ? providerFetch(input, init) : nativeFetch(input, init))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const sendEmail = emailStatus === 'sent' ? vi.fn().mockResolvedValue(undefined) : vi.fn().mockRejectedValue(new Error('SMTP failed'))
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(sendEmail, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', email: 'customer@example.com', message: 'Please call.' }),
+      })
+      expect(response.status).toBe(201)
+      expect(await response.json()).toMatchObject({ ok: true, notificationStatus: emailStatus, whatsappNotificationStatus: whatsappStatus })
+      expect(save).toHaveBeenCalledOnce()
+      expect(sendEmail).toHaveBeenCalledOnce()
+      expect(providerFetch).toHaveBeenCalledOnce()
+      expect(save.mock.invocationCallOrder[0]).toBeLessThan(sendEmail.mock.invocationCallOrder[0])
+      expect(save.mock.invocationCallOrder[0]).toBeLessThan(providerFetch.mock.invocationCallOrder[0])
+    }, save)
+  })
+
+  it('does not attempt WhatsApp if saving the inquiry fails', async () => {
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-token')
+    vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '123456')
+    vi.stubEnv('WHATSAPP_OWNER_NUMBER', '919876543210')
+    vi.stubEnv('WHATSAPP_TEMPLATE_NAME', 'new_enquiry')
+    vi.stubEnv('WHATSAPP_TEMPLATE_LANGUAGE', 'en')
+    vi.stubEnv('WHATSAPP_API_VERSION', 'v99.0')
+    const nativeFetch = globalThis.fetch
+    const providerFetch = vi.fn()
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => String(input).startsWith('https://graph.facebook.com/')
+      ? providerFetch(input, init) : nativeFetch(input, init))
+    const sendEmail = vi.fn()
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockRejectedValue(new Error('Database unavailable'))
+    await withServer(sendEmail, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }),
+      })
+      expect(response.status).toBe(500)
+      expect(sendEmail).not.toHaveBeenCalled()
+      expect(providerFetch).not.toHaveBeenCalled()
+    }, save)
+  })
+
+  it.each([
     ['465', true],
     ['587', false],
   ])('uses the real notification sender with SMTP port %s', async (port, secure) => {
@@ -125,6 +189,45 @@ describe('simple email API', () => {
         from: 'owner@example.com', to: 'owner@example.com', subject: 'New website contact inquiry',
       }))
     })
+  })
+
+  it('uses the SMTP sender for a saved cart request with customer and product details', async () => {
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(undefined, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/cart-leads`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer: orderBody.customer, items: orderBody.items }),
+      })
+      expect(response.status).toBe(201)
+      expect((await response.json()).notificationStatus).toBe('sent')
+      expect(mailMocks.sendMail).toHaveBeenCalledOnce()
+      const message = mailMocks.sendMail.mock.calls[0][0]
+      expect(message.text).toContain('Name: Test Customer')
+      expect(message.text).toContain('Phone: +919876543210')
+      expect(message.text).toContain('Email: customer@example.com')
+      expect(message.text).toContain('Celeste Diamond Ring')
+      expect(message.text).toContain('18K, quantity 2')
+      expect(save.mock.invocationCallOrder[0]).toBeLessThan(mailMocks.sendMail.mock.invocationCallOrder[0])
+    }, save)
+  })
+
+  it.each([
+    [{ accepted: [], rejected: [] }],
+    [{ accepted: ['owner@example.com'], rejected: ['other@example.com'] }],
+    [{}],
+  ])('does not report email success if SMTP did not accept all recipients', async (result) => {
+    mailMocks.sendMail.mockResolvedValue(result)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockResolvedValue(undefined)
+    await withServer(undefined, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }),
+      })
+      expect(response.status).toBe(201)
+      expect((await response.json()).notificationStatus).toBe('failed')
+      expect(save).toHaveBeenCalledOnce()
+    }, save)
   })
 
   it('emails complete order details after saving the order', async () => {
@@ -318,6 +421,24 @@ describe('simple email API', () => {
       expect((await blocked.json()).error).toBe('This website is not allowed to use the API.')
       expect(save).toHaveBeenCalledTimes(2)
     }, save)
+  })
+
+  it('allows preflight for authorized cross-origin admin deletion', async () => {
+    vi.stubEnv('CLIENT_ORIGIN', 'http://localhost:4173')
+    await withServer(vi.fn(), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/admin/orders/1`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'http://localhost:4173',
+          'Access-Control-Request-Method': 'DELETE',
+          'Access-Control-Request-Headers': 'authorization',
+        },
+      })
+      expect(response.status).toBe(204)
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:4173')
+      expect(response.headers.get('access-control-allow-methods')).toContain('DELETE')
+      expect(response.headers.get('access-control-allow-headers')).toContain('Authorization')
+    })
   })
 
   it('allows an explicitly configured list of production Vercel and custom-domain origins', async () => {

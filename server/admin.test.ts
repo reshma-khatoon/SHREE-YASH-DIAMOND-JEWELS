@@ -15,6 +15,7 @@ function setup() {
     signOut: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
     update: vi.fn().mockResolvedValue(true),
+    remove: vi.fn().mockResolvedValue(true),
     allowedUserIds: vi.fn().mockReturnValue(['admin-id']),
   }
   const app = express()
@@ -183,6 +184,34 @@ describe('admin authentication and APIs', () => {
       expect((await fetch(`${base}/orders/123/status`, {
         method: 'PATCH', headers, body: JSON.stringify({ status: 'read' }),
       })).status).toBe(404)
+    })
+  })
+
+  it('only lets authorized admins delete records from allowed tables', async () => {
+    await withServer(async (base, deps) => {
+      expect((await fetch(`${base}/orders/1`, { method: 'DELETE' })).status).toBe(401)
+      expect((await fetch(`${base}/orders/1`, {
+        method: 'DELETE', headers: { Authorization: 'Bearer fake' },
+      })).status).toBe(401)
+      const headers = { Authorization: `Bearer ${await login(base)}` }
+      deps.allowedUserIds.mockReturnValueOnce([])
+      expect((await fetch(`${base}/orders/1`, { method: 'DELETE', headers })).status).toBe(401)
+      deps.isAdminEmail.mockResolvedValueOnce(false)
+      expect((await fetch(`${base}/orders/1`, { method: 'DELETE', headers })).status).toBe(401)
+      for (const path of ['/admins/1', '/orders/0', '/orders/not-a-number', '/orders/9007199254740992']) {
+        expect((await fetch(`${base}${path}`, { method: 'DELETE', headers })).status).toBe(400)
+      }
+      expect(deps.remove).not.toHaveBeenCalled()
+      for (const table of ['inquiries', 'orders', 'cart_leads']) {
+        const response = await fetch(`${base}/${table}/1`, { method: 'DELETE', headers })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(deps.remove).toHaveBeenLastCalledWith(table, 1)
+      }
+      deps.remove.mockResolvedValueOnce(false)
+      const missing = await fetch(`${base}/orders/123`, { method: 'DELETE', headers })
+      expect(missing.status).toBe(404)
+      expect(await missing.json()).toEqual({ error: 'Record not found.' })
     })
   })
 })

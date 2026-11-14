@@ -5,6 +5,7 @@ import { products } from '../src/data.js'
 import { createAdminRouter } from './admin.js'
 import { saveSubmission, type SubmissionRecord } from './submissions.js'
 import { cartLeadSchema, contactSchema, orderSchema } from './validation.js'
+import { sendContactWhatsApp } from './whatsapp.js'
 
 type EmailMessage = { subject: string; text: string }
 type NotificationKind = 'contact' | 'cart_lead' | 'order'
@@ -65,7 +66,12 @@ function sendNotificationEmail({ subject, text }: EmailMessage) {
     to: OWNER_EMAIL,
     subject,
     text,
-  }).then(() => undefined)
+  }).then((result) => {
+    if (!Array.isArray(result.accepted) || result.accepted.length === 0
+      || !Array.isArray(result.rejected) || result.rejected.length > 0) {
+      throw Object.assign(new Error('SMTP did not accept all recipients.'), { code: 'EMESSAGE' })
+    }
+  })
 }
 
 function formatDate(date: Date) {
@@ -92,7 +98,7 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       response.setHeader('Access-Control-Allow-Origin', origin)
       response.setHeader('Vary', 'Origin')
       response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS')
+      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
     }
     if (request.method === 'OPTIONS') {
       response.sendStatus(204)
@@ -131,9 +137,12 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       return
     }
 
-    const notificationStatus = await notifyOwner('contact', sendEmail, { subject, text })
+    const [notificationStatus, whatsappNotificationStatus] = await Promise.all([
+      notifyOwner('contact', sendEmail, { subject, text }),
+      sendContactWhatsApp(contact),
+    ])
     response.status(201).json({
-      ok: true, notificationStatus, whatsappNotificationStatus: 'not_configured', message: 'Your message has been received.',
+      ok: true, notificationStatus, whatsappNotificationStatus, message: 'Your message has been received.',
     })
   }
 

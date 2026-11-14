@@ -25,7 +25,9 @@ Requirements: Node.js 20.19+ or 22.12+.
 
 The contact form, saved-cart requests, and orders are saved to Supabase before a success response is returned. Checkout includes a **Save Cart & Request a Call** option that sends the customer's name, phone, optional email, selected products, quantities, and gold types to the API. When SMTP is configured, each submission also emails the owner. Email errors do not discard saved leads or orders. New order records include a generated order ID, customer details, delivery address, canonical product description/material/diamond details, selected gold purity, quantity, and date/time. Email notification status is returned as `sent`, `failed`, or `not_configured`.
 
-The contact API returns `whatsappNotificationStatus: "not_configured"`: the existing WhatsApp links open a visitor-initiated chat and do not send automatic notifications. Automatic owner notifications require an official WhatsApp Business Platform or provider integration. For Meta Cloud API, set up a Meta business and app with a WhatsApp Business Account and registered sender phone number, a server-side access token with WhatsApp messaging permission, the sender phone number ID, the owner's recipient number in international format, and the recipient's opt-in. Outside the recipient's 24-hour service window, use an approved message template with name, email, phone and message parameters plus its language code. These credentials and template must be configured on the backend, not exposed to the browser; this project does not yet implement the provider integration. A successful provider API response indicates acceptance, not delivery; delivery requires webhook status verification.
+Adding a product to the cart only saves it in the visitor's browser and does not send an email; customer details and a cart notification are sent when the visitor chooses **Save Cart & Request a Call**.
+
+Contact enquiries can also notify the owner through Meta WhatsApp Cloud API; setup is required below. The existing WhatsApp links remain visitor-initiated chats. The API reports `whatsappNotificationStatus` separately from email. `sent` means Meta accepted the request, not that it was delivered; delivery requires webhook verification.
 
 The Supabase URL is available in the project dashboard's Connect or API settings. The legacy `service_role` key is in Project Settings → API Keys → Legacy API Keys. It bypasses row-level security and must remain on the backend. Run `npx tsx server\test-supabase.ts` for a read-only connection check.
 
@@ -36,6 +38,8 @@ The Supabase URL is available in the project dashboard's Connect or API settings
 3. Restart the backend and open `/admin/login` (or use the Admin icon in the navbar). Sign in with an existing authorized Supabase Auth account. The frontend stores the Supabase access token in per-tab `sessionStorage` so refreshes stay signed in; the backend revalidates the Supabase user, configured UID allow-list, and `public.admins` email on each admin API request. The dashboard's New/Read/Replied status is independent of order fulfilment status.
 
 The access token expires according to the Supabase project's JWT expiry setting; there is no automatic refresh. Logout clears the browser token and calls Supabase sign-out, but Supabase access tokens cannot be revoked before expiry. A copied token may therefore remain usable until it expires, unless the user or admin authorization is removed. Use HTTPS wherever credentials and tokens travel over a network.
+
+Admins can permanently delete individual enquiries, orders, and cart requests after confirming the action. This deletes the underlying Supabase record and cannot be undone.
 
 ## Email configuration
 
@@ -50,24 +54,41 @@ Optional backend variables:
 Optional:
 
 - `MAIL_FROM`: sender display name/address.
-- `CLIENT_ORIGINS`: comma-separated exact frontend origins allowed to call the API, e.g. `https://your-site.vercel.app,https://www.yourdomain.com`. Production checks each origin exactly, including requests forwarded by the Vercel proxy. Local development accepts both `localhost` and `127.0.0.1` on the configured port.
-- `VITE_API_BASE_URL`: leave empty locally and for the recommended same-origin Vercel proxy. Set it at frontend build time to the separate Express API's HTTPS origin only if intentionally bypassing the proxy.
+- `CLIENT_ORIGINS`: comma-separated exact frontend origins allowed to call the API, e.g. `https://your-site.vercel.app,https://www.yourdomain.com`. Production checks each origin exactly. Local development accepts both `localhost` and `127.0.0.1` on the configured port.
+- `VITE_API_BASE_URL`: leave empty locally and for the recommended same-origin Vercel API. Set it at frontend build time to a separately hosted Express API's HTTPS origin only if intentionally using one.
 
 Never expose SMTP credentials through `VITE_` variables.
 
 For notification troubleshooting, inspect `notificationStatus` in the submission API response: `not_configured` means required SMTP settings are missing, `failed` means the send failed, and `sent` means the SMTP server accepted the message, not that it reached the inbox. Runtime logs identify the submission type, missing setting names, and safe SMTP error codes without logging credentials or customer details. For Gmail, check the app password and account security when the code is `EAUTH`; for connection errors check the hostname, port, and function duration. Check Spam and the recipient address if the SMTP server accepted the email. Environment changes on Vercel require a redeployment.
 
+## WhatsApp contact notifications
+
+1. Set up a Meta business, a WhatsApp Business Account, a registered sender number and an app with WhatsApp messaging permission. Obtain a server-side access token and phone number ID. The owner must opt in to receive notifications; during Meta testing add the recipient to the allowed test numbers. Template messaging may incur Meta charges.
+2. Create and obtain approval for a body-only template with exactly four **positional** parameters in this order:
+
+   ```text
+   New enquiry
+   Name: {{1}}
+   Email: {{2}}
+   Phone: {{3}}
+   Message: {{4}}
+   ```
+
+   Use no header, buttons, or extra variables. For testing, use the same template name and language configured below.
+3. Configure these backend-only environment variables on the host running the Express API: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_OWNER_NUMBER` (international digits without `+`), `WHATSAPP_TEMPLATE_NAME`, `WHATSAPP_TEMPLATE_LANGUAGE` (for example `en`), and `WHATSAPP_API_VERSION` (a currently supported Graph API version, such as `vXX.0` as specified by Meta). Never use a `VITE_` prefix for the token. Redeploy after setting these variables.
+4. Submit a test enquiry and inspect `whatsappNotificationStatus`: `not_configured` means settings are missing, `failed` means Meta did not accept the request or the message was too long, and `sent` means acceptance only. Safe logs contain configuration names, HTTP status or Meta error code, not customer data or tokens.
+
+Template parameter whitespace is normalized to spaces. To avoid sending multiple chargeable messages, messages over 500 characters after normalization are not sent to WhatsApp and are reported as `failed`; the full enquiry remains in Supabase and Gmail is attempted independently. Saving always happens before either notification; a notification failure never deletes the enquiry.
+
 ## Deployment
 
-The Vercel project serves the Vite website and forwards `/api/*` through a Vercel Function to the **existing, separately hosted Express service**. It does not host the Express service itself. Deploy Express to a Node.js host such as Render, Railway, or a VPS:
+The Vercel project serves the Vite website and rewrites `/api/*` to the Vercel Function in `api/index.ts`, which runs the existing Express app directly. The current function does not use `API_BACKEND_ORIGIN`.
 
-- Build command: `npm install`; start command: `npm start`. Admin authorization does not depend on an in-memory session registry.
-- On the Express host, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` (or the existing `VITE_SUPABASE_ANON_KEY`), `ADMIN_USER_IDS`, and `CLIENT_ORIGINS`. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`. Add exact production and preview website origins to `CLIENT_ORIGINS`. Set SMTP variables only if notifications are required.
-- In Vercel → Project Settings → Environment Variables, set `API_BACKEND_ORIGIN` to the Express service's **HTTPS origin**, for example `https://your-api.onrender.com`, with no path or `/api`. Set it separately for Production and Preview as needed. Leave `VITE_API_BASE_URL` empty for the same-origin proxy. `API_BACKEND_ORIGIN` is a runtime setting, not a credential; never put the service role key or SMTP credentials in any `VITE_` variable.
-- If an existing `VITE_API_BASE_URL` is set in Vercel, the frontend sends requests directly to that origin instead of through the proxy. Remove it or leave it empty to use the proxy; alternatively keep it pointed at the same Express service and configure CORS accordingly.
-- Redeploy Vercel after setting variables or changing this configuration. Redeploy/restart the Express service after backend changes or environment changes. Vercel's environment settings do not automatically configure the separate backend.
+- In Vercel → Project Settings → Environment Variables, configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` (or the existing `VITE_SUPABASE_ANON_KEY`), `ADMIN_USER_IDS`, `CLIENT_ORIGINS`, and the SMTP and WhatsApp variables described above. Set them for the appropriate Production or Preview environment. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`; include the exact website origins in `CLIENT_ORIGINS`.
+- Leave `VITE_API_BASE_URL` empty for same-origin requests. If it points to a separate Express service, configure its backend variables and CORS on that service instead; Vercel variables do not configure a separately hosted API.
+- Redeploy after changing variables or application code. Never expose the service role key, SMTP password, or WhatsApp access token in a `VITE_` variable.
 
-After deployment, `POST /api/admin/login` with `{}` should return a JSON 400 validation error, and unauthenticated `GET /api/admin/session` should return JSON 401. These checks do not require credentials or modify customer data. A real login requires the configured Supabase project and authorized account; verify login, refresh, logout, and denied access for an unauthorized user. If a proxy request returns 503, check `API_BACKEND_ORIGIN`; for 502, inspect Vercel Function logs and backend availability without sharing credentials.
+After deployment, `POST /api/admin/login` with `{}` should return a JSON 400 validation error, and unauthenticated `GET /api/admin/session` should return JSON 401. These checks do not require credentials or modify customer data. A real login requires the configured Supabase project and authorized account; verify login, refresh, logout, and denied access for an unauthorized user. For API failures, inspect Vercel Function logs without sharing credentials.
 
 Existing local JSONL files are not imported automatically. If SMTP is not configured, the backend still saves and acknowledges submissions; notification emails begin only after valid credentials are set.
 

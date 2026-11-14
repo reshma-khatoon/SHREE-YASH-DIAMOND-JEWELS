@@ -40,10 +40,11 @@ function details(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
-function RecordCard({ record, table, onStatus }: {
+function RecordCard({ record, table, onStatus, onDelete }: {
   record: RecordData
   table: TableName
   onStatus: (id: number, status: AdminStatus) => Promise<void>
+  onDelete: (id: number, title: string) => Promise<void>
 }) {
   const excluded = new Set(['id', 'created_at', 'admin_status'])
   const title = table === 'orders' ? details(record.order_id) : table === 'cart_leads' ? details(record.lead_id) : `Enquiry #${record.id}`
@@ -51,11 +52,15 @@ function RecordCard({ record, table, onStatus }: {
     <article className="admin-record">
       <div className="admin-record-header">
         <div><h3>{title}</h3><span>{new Date(record.created_at).toLocaleString('en-IN')}</span></div>
-        <label>Status
-          <select value={record.admin_status} onChange={(event) => void onStatus(record.id, event.target.value as AdminStatus)}>
-            <option value="new">New</option><option value="read">Read</option><option value="replied">Replied</option>
-          </select>
-        </label>
+        <div className="admin-record-actions">
+          <label>Status
+            <select value={record.admin_status} onChange={(event) => void onStatus(record.id, event.target.value as AdminStatus)}>
+              <option value="new">New</option><option value="read">Read</option><option value="replied">Replied</option>
+            </select>
+          </label>
+          <button type="button" className="admin-delete-button" onClick={() => void onDelete(record.id, title)}
+            aria-label={`Delete ${title}`}>Delete</button>
+        </div>
       </div>
       <dl className="admin-details">
         {Object.entries(record).filter(([key]) => !excluded.has(key)).map(([key, value]) => (
@@ -178,6 +183,7 @@ export default function AdminPage() {
   const [table, setTable] = useState<TableName>('inquiries')
   const [offset, setOffset] = useState(0)
   const [records, setRecords] = useState<RecordData[]>([])
+  const [recordsVersion, setRecordsVersion] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -218,7 +224,7 @@ export default function AdminPage() {
       })
       .finally(() => { if (active) setBusy(false) })
     return () => { active = false }
-  }, [token, authorized, table, offset])
+  }, [token, authorized, table, offset, recordsVersion])
 
   async function logout() {
     setBusy(true)
@@ -257,6 +263,28 @@ export default function AdminPage() {
     }
   }
 
+  async function deleteRecord(id: number, title: string) {
+    if (!window.confirm(`Permanently delete ${title}? This cannot be undone.`)) return
+    setError('')
+    setBusy(true)
+    try {
+      await adminRequest(`/${table}/${id}`, token, 'DELETE')
+      setRecords((current) => current.filter((record) => record.id !== id))
+      if (records.length === 1 && offset > 0) setOffset((value) => Math.max(0, value - 50))
+      else setRecordsVersion((value) => value + 1)
+    } catch (err) {
+      if (err instanceof AdminRequestError && err.status === 401) {
+        clearStoredAdminToken()
+        setToken('')
+        setAuthorized(false)
+        setRecords([])
+      }
+      setError(err instanceof Error ? err.message : 'Delete failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!token) return <Navigate to="/admin/login" replace state={error ? { error } : undefined} />
   if (checkingSession || !authorized) {
     return <section className="container section-block admin-page"><p role="status">Verifying admin session…</p></section>
@@ -274,7 +302,7 @@ export default function AdminPage() {
         <button type="button" onClick={() => void logout()} disabled={busy}>Log out</button>
       </div>
       {busy ? <p>Loading…</p> : records.length === 0 ? <p>No records on this page.</p> : (
-        <div className="admin-records">{records.map((record) => <RecordCard key={record.id} record={record} table={table} onStatus={updateStatus} />)}</div>
+        <div className="admin-records">{records.map((record) => <RecordCard key={record.id} record={record} table={table} onStatus={updateStatus} onDelete={deleteRecord} />)}</div>
       )}
       <div className="admin-pagination">
         <button type="button" disabled={busy || offset === 0} onClick={() => setOffset((value) => Math.max(0, value - 50))}>Previous</button>

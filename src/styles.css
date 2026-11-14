@@ -93,7 +93,7 @@ img {
   gap: 12px;
 }
 .admin-toolbar, .admin-record-header { justify-content: space-between; }
-.admin-toolbar button, .admin-pagination button {
+.admin-toolbar button, .admin-pagination button, .admin-delete-button {
   border: 1px solid var(--champagne);
   border-radius: 8px;
   background: var(--white);
@@ -106,6 +106,8 @@ img {
 .admin-records { display: grid; gap: 16px; margin-top: 20px; }
 .admin-record { background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .admin-record h3 { margin: 0; overflow-wrap: anywhere; }
+.admin-record-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.admin-delete-button { color: #9a352c; }
 .admin-record-header label { display: flex; align-items: center; gap: 8px; }
 .admin-record-header select { padding: 6px; }
 .admin-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }

@@ -13,6 +13,7 @@ type AdminDependencies = {
   signOut: (accessToken: string) => Promise<void>
   list: (table: TableName, offset: number) => Promise<unknown[]>
   update: (table: TableName, id: number, status: AdminStatus) => Promise<boolean>
+  remove: (table: TableName, id: number) => Promise<boolean>
   allowedUserIds: () => string[]
 }
 
@@ -67,6 +68,11 @@ const defaultDependencies: AdminDependencies = {
   async update(table, id, status) {
     const { data, error } = await supabase.from(table).update({ admin_status: status }).eq('id', id).select('id')
     if (error) throw new Error(`Could not update ${table}: ${error.message}`)
+    return data.length === 1
+  },
+  async remove(table, id) {
+    const { data, error } = await supabase.from(table).delete().eq('id', id).select('id')
+    if (error) throw new Error(`Could not delete ${table} record: ${error.message}`)
     return data.length === 1
   },
   allowedUserIds: () => (process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean),
@@ -155,6 +161,20 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       return
     }
     if (!await deps.update(table.data, id.data, body.data.status)) {
+      res.status(404).json({ error: 'Record not found.' })
+      return
+    }
+    res.json({ ok: true })
+  })
+
+  router.delete('/:table/:id', async (req, res) => {
+    const table = tableSchema.safeParse(req.params.table)
+    const id = idSchema.safeParse(req.params.id)
+    if (!table.success || !id.success) {
+      res.status(400).json({ error: 'Invalid record.' })
+      return
+    }
+    if (!await deps.remove(table.data, id.data)) {
       res.status(404).json({ error: 'Record not found.' })
       return
     }

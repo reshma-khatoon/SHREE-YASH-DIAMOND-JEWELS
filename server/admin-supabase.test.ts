@@ -67,4 +67,69 @@ describe('admin Supabase integration', () => {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
     }
   })
+
+  it('deletes only the requested Supabase record and reports missing records', async () => {
+    vi.stubEnv('ADMIN_USER_IDS', 'admin-id')
+    mocks.getUser.mockResolvedValue({ data: { user: { id: 'admin-id', email: 'admin@example.test' } }, error: null })
+    const selectDeleted = vi.fn().mockResolvedValueOnce({ data: [{ id: 42 }], error: null })
+      .mockResolvedValueOnce({ data: [], error: null })
+    const eq = vi.fn().mockReturnValue({ select: selectDeleted })
+    const deleteRows = vi.fn().mockReturnValue({ eq })
+    mocks.from.mockImplementation((table: string) => table === 'admins'
+      ? { select: vi.fn().mockResolvedValue({ data: [{ email: 'admin@example.test' }], error: null }) }
+      : { delete: deleteRows })
+    const app = express()
+    app.use('/api/admin', createAdminRouter())
+    const server = app.listen(0, '127.0.0.1')
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Test server did not start')
+    const url = `http://127.0.0.1:${address.port}/api/admin/inquiries/42`
+    try {
+      const options = { method: 'DELETE', headers: { Authorization: 'Bearer supabase-token' } }
+      expect((await fetch(url, options)).status).toBe(200)
+      expect(mocks.from).toHaveBeenCalledWith('inquiries')
+      expect(eq).toHaveBeenCalledWith('id', 42)
+      expect(selectDeleted).toHaveBeenCalledWith('id')
+      expect((await fetch(url, options)).status).toBe(404)
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    }
+  })
+
+  it('leaves other records and tables untouched when deleting a selected record', async () => {
+    vi.stubEnv('ADMIN_USER_IDS', 'admin-id')
+    mocks.getUser.mockResolvedValue({ data: { user: { id: 'admin-id', email: 'admin@example.test' } }, error: null })
+    const records: Record<string, number[]> = { inquiries: [1, 2], orders: [1], cart_leads: [1] }
+    mocks.from.mockImplementation((table: string) => {
+      if (table === 'admins') return { select: vi.fn().mockResolvedValue({ data: [{ email: 'admin@example.test' }], error: null }) }
+      return {
+        delete: () => ({
+          eq: (column: string, id: number) => ({
+            select: async () => {
+              if (column !== 'id') throw new Error('Unexpected filter')
+              const found = records[table].includes(id)
+              records[table] = records[table].filter((value) => value !== id)
+              return { data: found ? [{ id }] : [], error: null }
+            },
+          }),
+        }),
+      }
+    })
+    const app = express()
+    app.use('/api/admin', createAdminRouter())
+    const server = app.listen(0, '127.0.0.1')
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Test server did not start')
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/admin/inquiries/1`, {
+        method: 'DELETE', headers: { Authorization: 'Bearer supabase-token' },
+      })
+      expect(response.status).toBe(200)
+      expect(records).toEqual({ inquiries: [2], orders: [1], cart_leads: [1] })
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    }
+  })
 })
