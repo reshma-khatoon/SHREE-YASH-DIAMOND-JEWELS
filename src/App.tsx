@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
+import AdminPage from './AdminPage'
 
 type CartItem = Product & { quantity: number; selectedPurity: GoldPurity }
 type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => void
@@ -174,6 +175,7 @@ function App() {
           <Route path="/product/:productId" element={<ProductDetailPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} wishlistPurities={wishlistPurities} updateWishlistPurity={updateWishlistPurity} />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/checkout" element={<CheckoutPage cart={cart} updateCartItem={updateCartItem} onOrderPlaced={() => { setCart([]); setCartOpen(false) }} />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>

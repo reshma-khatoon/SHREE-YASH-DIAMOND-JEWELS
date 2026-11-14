@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import express from 'express'
 import nodemailer from 'nodemailer'
 import { products } from '../src/data'
+import { createAdminRouter } from './admin'
 import { saveSubmission, type SubmissionRecord } from './submissions'
 import { cartLeadSchema, contactSchema, orderSchema } from './validation'
 
@@ -93,8 +94,8 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
     if (origin) {
       response.setHeader('Access-Control-Allow-Origin', origin)
       response.setHeader('Vary', 'Origin')
-      response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS')
     }
     if (request.method === 'OPTIONS') {
       response.sendStatus(204)
@@ -102,6 +103,8 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
     }
     next()
   })
+
+  app.use('/api/admin', createAdminRouter())
 
   const contactHandler: express.RequestHandler = async (request, response, next) => {
     const parsed = contactSchema.safeParse(request.body)
@@ -283,8 +286,10 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       response.status(400).json({ error: 'Please submit valid JSON.' })
       return
     }
-    console.error('Could not save submission:', error)
-    response.status(500).json({ error: 'We could not receive your request. Please try again or contact us by phone.' })
+    console.error('API request failed:', error)
+    response.status(500).json({ error: _request.path.startsWith('/api/admin')
+      ? 'Admin request failed. Please try again.'
+      : 'We could not receive your request. Please try again or contact us by phone.' })
   })
 
   return app

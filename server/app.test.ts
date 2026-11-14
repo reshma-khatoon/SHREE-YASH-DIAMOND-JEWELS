@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
 import { createApp } from './app'
-import { saveSubmission, type SubmissionRecord } from './submissions'
+import type { SubmissionRecord } from './submissions'
+
+vi.mock('./supabase', () => ({ supabase: { from: vi.fn() } }))
 
 const orderBody = {
   customer: {
@@ -146,14 +145,18 @@ describe('simple email API', () => {
     }, save)
   })
 
-  it('does not report order success when saving the submission fails', async () => {
+  it.each([
+    ['/api/contact', { name: 'Test Customer', phone: '+919876543210', message: 'Please call.' }],
+    ['/api/cart-leads', { customer: orderBody.customer, items: orderBody.items }],
+    ['/api/orders', orderBody],
+  ])('does not report success or send email when saving %s fails', async (route, body) => {
     const sendEmail = vi.fn().mockResolvedValue(undefined)
-    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockRejectedValue(new Error('Disk unavailable'))
+    const save = vi.fn<(record: SubmissionRecord) => Promise<void>>().mockRejectedValue(new Error('Database unavailable'))
     await withServer(sendEmail, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/orders`, {
+      const response = await fetch(`${baseUrl}${route}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderBody),
+        body: JSON.stringify(body),
       })
       expect(response.status).toBe(500)
       expect((await response.json()).error).toContain('could not receive')
@@ -188,35 +191,6 @@ describe('simple email API', () => {
       expect(save).toHaveBeenCalledTimes(2)
       expect(sendEmail).not.toHaveBeenCalled()
     }, save)
-  })
-
-  it('persists accepted submissions to the configured local JSONL file', async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), 'shree-yash-api-'))
-    const submissionsFile = path.join(directory, 'submissions.jsonl')
-    vi.stubEnv('SUBMISSIONS_FILE', submissionsFile)
-    const sendEmail = vi.fn().mockResolvedValue(undefined)
-    const save = (record: SubmissionRecord) => saveSubmission(record)
-
-    try {
-      await withServer(sendEmail, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/api/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderBody),
-        })
-        expect(response.status).toBe(201)
-      }, save)
-
-      const savedLines = (await readFile(submissionsFile, 'utf8')).trim().split('\n')
-      expect(savedLines).toHaveLength(1)
-      expect(JSON.parse(savedLines[0])).toEqual(expect.objectContaining({
-        type: 'order',
-        customer: expect.objectContaining({ name: 'Test Customer' }),
-        items: [expect.objectContaining({ productName: 'Celeste Diamond Ring', goldPurity: '18K', quantity: 2 })],
-      }))
-    } finally {
-      await rm(directory, { recursive: true, force: true })
-    }
   })
 
   it('rejects invalid customer details and unavailable product purity', async () => {
