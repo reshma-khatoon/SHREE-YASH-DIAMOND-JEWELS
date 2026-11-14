@@ -313,3 +313,6 @@ async function notifyOwner(sendEmail: EmailSender, message: EmailMessage): Promi
     return 'failed'
   }
 }
+const app = createApp()
+
+export default app

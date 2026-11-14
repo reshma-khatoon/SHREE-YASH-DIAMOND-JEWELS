@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import { Router } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
@@ -7,7 +6,6 @@ import { supabase } from './supabase'
 const tableNames = ['inquiries', 'orders', 'cart_leads'] as const
 type TableName = typeof tableNames[number]
 type AdminStatus = 'new' | 'read' | 'replied'
-type Session = { accessToken: string; userId: string; expiresAt: number }
 type AdminDependencies = {
   signIn: (email: string, password: string) => Promise<{ accessToken: string; userId: string; email: string; expiresAt: number } | null>
   getUser: (accessToken: string) => Promise<{ userId: string; email: string } | null>
@@ -82,7 +80,6 @@ const offsetSchema = z.coerce.number().int().min(0).max(100000).default(0)
 
 export function createAdminRouter(deps: AdminDependencies = defaultDependencies) {
   const router = Router()
-  const sessions = new Map<string, Session>()
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store')
     next()
@@ -108,38 +105,24 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       res.status(403).json({ error: 'Invalid credentials or unauthorized account.' })
       return
     }
-    const now = Date.now()
-    for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
-    if (sessions.size >= 100) {
-      await deps.signOut(auth.accessToken)
-      res.status(503).json({ error: 'Too many active admin sessions.' })
-      return
-    }
-    const token = randomBytes(32).toString('base64url')
-    sessions.set(token, { ...auth, expiresAt: Math.min(auth.expiresAt, now + 60 * 60 * 1000) })
-    res.json({ token })
+    res.json({ token: auth.accessToken })
   })
 
   router.use(async (req, res, next) => {
-    const match = /^Bearer ([A-Za-z0-9_-]+)$/.exec(req.get('Authorization') || '')
+    const match = /^Bearer ([^\s]{1,8192})$/.exec(req.get('Authorization') || '')
     const token = match?.[1]
-    const session = token ? sessions.get(token) : undefined
-    if (!token || !session || session.expiresAt <= Date.now()) {
-      if (token) sessions.delete(token)
+    if (!token) {
       res.status(401).json({ error: 'Please log in again.' })
       return
     }
-    const user = await deps.getUser(session.accessToken)
+    const user = await deps.getUser(token)
     if (!user
-      || user.userId !== session.userId
       || !deps.allowedUserIds().includes(user.userId)
       || !await deps.isAdminEmail(user.email)) {
-      sessions.delete(token)
       res.status(401).json({ error: 'Please log in again.' })
       return
     }
     res.locals.adminToken = token
-    res.locals.adminSession = session
     next()
   })
 
@@ -149,9 +132,7 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
 
   router.post('/logout', async (_req, res) => {
     const token: string = res.locals.adminToken
-    const session: Session = res.locals.adminSession
-    sessions.delete(token)
-    await deps.signOut(session.accessToken)
+    await deps.signOut(token)
     res.json({ ok: true })
   })
 

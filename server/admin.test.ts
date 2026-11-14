@@ -7,9 +7,10 @@ vi.mock('./supabase', () => ({ supabase: {} }))
 function setup() {
   const deps = {
     signIn: vi.fn().mockResolvedValue({
-      accessToken: 'supabase-token', userId: 'admin-id', email: 'admin@example.com', expiresAt: Date.now() + 60000,
+      accessToken: 'header.payload.signature', userId: 'admin-id', email: 'admin@example.com', expiresAt: Date.now() + 60000,
     }),
-    getUser: vi.fn().mockResolvedValue({ userId: 'admin-id', email: 'admin@example.com' }),
+    getUser: vi.fn().mockImplementation(async (token: string) => token === 'header.payload.signature'
+      ? { userId: 'admin-id', email: 'admin@example.com' } : null),
     isAdminEmail: vi.fn().mockResolvedValue(true),
     signOut: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
@@ -49,8 +50,10 @@ describe('admin authentication and APIs', () => {
   it('authenticates, lists records, updates each allowed status, and logs out', async () => {
     await withServer(async (base, deps) => {
       const token = await login(base)
+      expect(token).toBe('header.payload.signature')
       const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
       expect((await fetch(`${base}/session`, { headers })).status).toBe(200)
+      expect(deps.getUser).toHaveBeenCalledWith(token)
       expect(deps.isAdminEmail).toHaveBeenCalledWith('admin@example.com')
       for (const table of ['inquiries', 'orders', 'cart_leads']) {
         expect((await fetch(`${base}/${table}`, { headers })).status).toBe(200)
@@ -62,8 +65,7 @@ describe('admin authentication and APIs', () => {
         }
       }
       expect((await fetch(`${base}/logout`, { method: 'POST', headers })).status).toBe(200)
-      expect(deps.signOut).toHaveBeenCalledWith('supabase-token')
-      expect((await fetch(`${base}/orders`, { headers })).status).toBe(401)
+      expect(deps.signOut).toHaveBeenCalledWith(token)
     })
   })
 
@@ -97,7 +99,7 @@ describe('admin authentication and APIs', () => {
         body: JSON.stringify({ email: 'admin@example.com', password: 'password' }),
       })
       expect(response.status).toBe(403)
-      expect(deps.signOut).toHaveBeenCalledWith('supabase-token')
+      expect(deps.signOut).toHaveBeenCalledWith('header.payload.signature')
       expect(deps.list).not.toHaveBeenCalled()
     })
   })
@@ -122,14 +124,14 @@ describe('admin authentication and APIs', () => {
     })
   })
 
-  it('rejects a session when Supabase no longer validates the user', async () => {
+  it('rechecks Supabase validation for each request', async () => {
     await withServer(async (base, deps) => {
       const token = await login(base)
       deps.getUser.mockResolvedValueOnce(null)
       const headers = { Authorization: `Bearer ${token}` }
       expect((await fetch(`${base}/cart_leads`, { headers })).status).toBe(401)
-      expect((await fetch(`${base}/cart_leads`, { headers })).status).toBe(401)
-      expect(deps.list).not.toHaveBeenCalled()
+      expect((await fetch(`${base}/cart_leads`, { headers })).status).toBe(200)
+      expect(deps.list).toHaveBeenCalledOnce()
     })
   })
 
@@ -138,7 +140,17 @@ describe('admin authentication and APIs', () => {
       deps.signIn.mockResolvedValueOnce({ accessToken: 'expired', userId: 'admin-id', expiresAt: Date.now() - 1 })
       const token = await login(base)
       expect((await fetch(`${base}/orders`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(401)
+      expect(deps.getUser).toHaveBeenCalledWith('expired')
       expect(deps.list).not.toHaveBeenCalled()
+    })
+  })
+
+  it('accepts a valid Supabase token without a prior login on this router', async () => {
+    await withServer(async (base, deps) => {
+      const headers = { Authorization: 'Bearer header.payload.signature' }
+      expect((await fetch(`${base}/session`, { headers })).status).toBe(200)
+      expect(deps.getUser).toHaveBeenCalledWith('header.payload.signature')
+      expect(deps.signIn).not.toHaveBeenCalled()
     })
   })
 
