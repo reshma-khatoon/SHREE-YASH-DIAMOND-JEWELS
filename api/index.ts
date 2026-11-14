@@ -1,6 +1,7 @@
 
 import type { Request, Response } from 'express'
-import app from '../server/app'
+import app from '../server/app.ts'
+
 
 export default function handler(req: Request, res: Response) {
   const requestUrl = new URL(
