@@ -1,3 +1,4 @@
+
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -22,5 +23,13 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "api", "server"],
+  "exclude": [
+    "server/**/*.test.ts",
+    "server/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "api/**/*.test.ts",
+    "api/**/*.spec.ts"
+  ],
   "references": []
 }
