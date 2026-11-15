@@ -368,9 +368,7 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
         {!counts && !countsError && <p role="status">Loading dashboard counts…</p>}
         {counts && <dl className="admin-counts">
           <div><dt>Inquiries</dt><dd>{counts.inquiries.total}</dd></div>
-          <div><dt>New inquiries</dt><dd>{counts.inquiries.new}</dd></div>
           <div><dt>Orders</dt><dd>{counts.orders.total}</dd></div>
-          <div><dt>New orders</dt><dd>{counts.orders.new}</dd></div>
           <div><dt>Cart leads</dt><dd>{counts.cartLeads.total}</dd></div>
         </dl>}
         {countsError && <button type="button" onClick={refreshCounts}>Retry counts</button>}

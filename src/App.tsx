@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
 import AdminPage, { AdminLoginPage, useAdminSession } from './AdminPage'
+import AboutDetails from './AboutDetails'
 import { useAdminCounts } from './useAdminCounts'
 
 type CartItem = Product & { quantity: number; selectedPurity: GoldPurity }
 type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => void
 
-const fallbackJewelleryImage = 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=1200&q=80'
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
 async function postApi<T>(path: string, payload: unknown): Promise<T> {
@@ -34,21 +34,17 @@ function ScrollToTop() {
   return null
 }
 
-function SafeImage({ src, alt, className, ...props }: { src?: string; alt: string; className?: string; [key: string]: any }) {
+export function SafeImage({ src, alt, className, ...props }: { src: string; alt: string; className?: string; [key: string]: any }) {
   return (
     <img
       {...props}
-      src={src || fallbackJewelleryImage}
+      src={src}
       alt={alt}
       className={className}
       onError={(event) => {
         const target = event.currentTarget
         const failedSrc = target.currentSrc || target.src
-        console.warn('[SafeImage] Missing image path:', failedSrc)
-        if (target.src !== fallbackJewelleryImage) {
-          target.onerror = null
-          target.src = fallbackJewelleryImage
-        }
+        console.warn('[SafeImage] Failed to load image:', failedSrc)
       }}
     />
   )
@@ -453,7 +449,8 @@ function ProductCard({ product, wishlist, toggleWishlist }: { product: Product; 
 
 function JourneyPage() {
   return (
-    <section className="about-section section-block container">
+    <>
+    <section className="about-section journey-section section-block container">
       <div className="about-image-wrap">
         <SafeImage src="/j.jpg" alt="Jewellery craftsmanship and premium styling for Shree Yash Diamond and Jewels" />
       </div>
@@ -471,6 +468,8 @@ function JourneyPage() {
         </p>
       </div>
     </section>
+    <AboutDetails />
+    </>
   )
 }
 

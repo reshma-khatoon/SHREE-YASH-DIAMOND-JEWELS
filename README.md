@@ -2,6 +2,15 @@
 
 The storefront uses a small Express API. It saves valid contact and product enquiries to Supabase `inquiries`, cart leads to `cart_leads`, and orders to `orders`. Email notifications are optional: without SMTP credentials, requests are still accepted and saved, and email sending becomes active once credentials are configured. Admin login uses existing Supabase Auth accounts; there is no payment processing, SMS provider, or analytics backend.
 
+## About page assets
+
+The `/journey` page uses these local paths for client-provided files:
+
+- `public/about/documents/subhash-kulkarni.pdf` and `public/about/documents/vaibhv-kulkarni.pdf`
+- `public/about/photos/first/photo-01.jpg` for the first gallery
+
+The supplied PDFs and gallery photo are included; deploy them with the site. Missing files are shown as coming soon; PDF buttons become available when the files are served. To use more photographs, add their paths and descriptive alt text to the photo list in `src/AboutDetails.tsx`.
+
 ## Run locally
 
 Requirements: Node.js 20.19+ or 22.12+.
