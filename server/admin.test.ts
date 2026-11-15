@@ -14,7 +14,7 @@ function setup() {
     isAdminEmail: vi.fn().mockResolvedValue(true),
     signOut: vi.fn().mockResolvedValue(undefined),
     counts: vi.fn().mockResolvedValue({
-      inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 },
+      inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 },
     }),
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
     update: vi.fn().mockResolvedValue(true),
@@ -64,7 +64,7 @@ describe('admin authentication and APIs', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('cache-control')).toBe('no-store')
       expect(await response.json()).toEqual({
-        inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 },
+        inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 },
       })
     })
   })

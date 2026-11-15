@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { adminRequest, AdminRequestError, getAdminCounts, type AdminCounts } from './adminApi'
-import { adminClient, adminSessionClearedEvent, adminSessionStorageKey, clearAdminSession, signInAdmin } from './adminSession'
+import { adminRequest, AdminRequestError, type AdminCounts } from './adminApi'
+import { adminClient, adminSessionClearedEvent, adminSessionStorageKey, clearAdminSession, clearRejectedSession, signInAdmin } from './adminSession'
 
 type TableName = 'inquiries' | 'orders' | 'cart_leads'
 type AdminStatus = 'new' | 'read' | 'replied'
@@ -18,7 +18,7 @@ const sections: { value: TableName; label: string }[] = [
   { value: 'cart_leads', label: 'Cart requests' },
 ]
 
-function useAdminSession() {
+export function useAdminSession() {
   const [session, setSession] = useState({ token: '', loading: true, error: '' })
   useEffect(() => {
     let active = true
@@ -66,13 +66,7 @@ function useAdminSession() {
   return session
 }
 
-async function clearRejectedSession(rejectedToken: string) {
-  const { data, error } = await adminClient().auth.getSession()
-  if (error) throw new Error('Could not verify the admin session. Please check your connection.')
-  if (data.session && data.session.access_token !== rejectedToken) return false
-  if (data.session) await clearAdminSession()
-  return true
-}
+type AdminSession = ReturnType<typeof useAdminSession>
 
 function details(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
@@ -111,7 +105,7 @@ function RecordCard({ record, table, onStatus, onDelete }: {
   )
 }
 
-export function AdminLoginPage() {
+export function AdminLoginPage({ session }: { session: AdminSession }) {
   const navigate = useNavigate()
   const location = useLocation()
   const routeError = (location.state as { error?: string } | null)?.error ?? ''
@@ -120,7 +114,6 @@ export function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(routeError)
   const [busy, setBusy] = useState(false)
-  const session = useAdminSession()
   const [checkingSession, setCheckingSession] = useState(false)
 
   useEffect(() => {
@@ -213,9 +206,13 @@ export function AdminLoginPage() {
   )
 }
 
-export default function AdminPage() {
+export default function AdminPage({ session, counts, countsError, refreshCounts }: {
+  session: AdminSession
+  counts: AdminCounts | null
+  countsError: string
+  refreshCounts: () => void
+}) {
   const navigate = useNavigate()
-  const session = useAdminSession()
   const token = session.token
   const [verifiedToken, setVerifiedToken] = useState('')
   const [checkingSession, setCheckingSession] = useState(false)
@@ -224,9 +221,6 @@ export default function AdminPage() {
   const [offset, setOffset] = useState(0)
   const [records, setRecords] = useState<RecordData[]>([])
   const [recordsVersion, setRecordsVersion] = useState(0)
-  const [counts, setCounts] = useState<AdminCounts | null>(null)
-  const [countsError, setCountsError] = useState('')
-  const [countsVersion, setCountsVersion] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
@@ -249,6 +243,10 @@ export default function AdminPage() {
       .finally(() => { if (active) setCheckingSession(false) })
     return () => { active = false }
   }, [token, sessionCheckVersion])
+
+  useEffect(() => {
+    if (token && verifiedToken === token) refreshCounts()
+  }, [token, verifiedToken, refreshCounts])
 
   useEffect(() => {
     if (!token || verifiedToken !== token) return
@@ -281,56 +279,6 @@ export default function AdminPage() {
     return () => { active = false }
   }, [token, verifiedToken, table, offset, recordsVersion])
 
-  useEffect(() => {
-    if (!token || verifiedToken !== token) return
-    let active = true
-    let inFlight = false
-    let timer: number | undefined
-
-    async function refreshCounts() {
-      if (!active || inFlight) return
-      inFlight = true
-      if (timer !== undefined) window.clearTimeout(timer)
-      try {
-        const result = await getAdminCounts(token)
-        if (active) {
-          setCounts(result)
-          setCountsError('')
-        }
-      } catch (err) {
-        if (!active) return
-        if (err instanceof AdminRequestError && err.status === 401) {
-          try {
-            if (await clearRejectedSession(token) && active) {
-              setVerifiedToken('')
-              setRecords([])
-            }
-          } catch (clearError) {
-            if (active) setCountsError(clearError instanceof Error ? clearError.message : 'Could not clear the session.')
-            return
-          }
-        }
-        if (active) setCountsError(err instanceof Error ? err.message : 'Could not load dashboard counts.')
-      } finally {
-        inFlight = false
-        if (active) timer = window.setTimeout(() => void refreshCounts(), 15000)
-      }
-    }
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void refreshCounts()
-    }
-    setCounts(null)
-    setCountsError('')
-    void refreshCounts()
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      active = false
-      if (timer !== undefined) window.clearTimeout(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [token, verifiedToken, countsVersion])
-
   async function logout() {
     setLoggingOut(true)
     setBusy(true)
@@ -356,7 +304,7 @@ export default function AdminPage() {
     try {
       await adminRequest(`/${table}/${id}/status`, token, 'PATCH', { status })
       setRecords((current) => current.map((record) => record.id === id ? { ...record, admin_status: status } : record))
-      setCountsVersion((value) => value + 1)
+      refreshCounts()
     } catch (err) {
       if (err instanceof AdminRequestError && err.status === 401) {
         try {
@@ -380,7 +328,7 @@ export default function AdminPage() {
     try {
       await adminRequest(`/${table}/${id}`, token, 'DELETE')
       setRecords((current) => current.filter((record) => record.id !== id))
-      setCountsVersion((value) => value + 1)
+      refreshCounts()
       if (records.length === 1 && offset > 0) setOffset((value) => Math.max(0, value - 50))
       else setRecordsVersion((value) => value + 1)
     } catch (err) {
@@ -425,7 +373,7 @@ export default function AdminPage() {
           <div><dt>New orders</dt><dd>{counts.orders.new}</dd></div>
           <div><dt>Cart leads</dt><dd>{counts.cartLeads.total}</dd></div>
         </dl>}
-        {countsError && <button type="button" onClick={() => setCountsVersion((value) => value + 1)}>Retry counts</button>}
+        {countsError && <button type="button" onClick={refreshCounts}>Retry counts</button>}
       </section>
       <div className="admin-toolbar">
         <div className="admin-tabs">

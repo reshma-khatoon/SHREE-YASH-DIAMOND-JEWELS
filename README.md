@@ -42,7 +42,7 @@ Logout clears the session on the current browser and attempts to revoke its refr
 
 Admins can permanently delete individual enquiries, orders, and cart requests after confirming the action. This deletes the underlying Supabase record and cannot be undone.
 
-The dashboard counts all saved inquiries, orders, and cart leads, regardless of the current list page. “New” counts use `admin_status = 'new'`, not order fulfilment status. Counts refresh on dashboard entry, every 15 seconds while it is open, when the tab becomes visible, and after a status change or deletion. A count error is shown instead of treating a failed query as zero.
+The dashboard counts all saved inquiries, orders, and cart leads, regardless of the current list page. The Admin icon's badge is visible only after an authorized count request succeeds and shows the combined new inquiries, orders, and cart leads; it is hidden for zero. “New” counts use `admin_status = 'new'`, not order fulfilment status. Counts refresh on dashboard entry, every 15 seconds while signed in, when the tab becomes visible, and after a status change or deletion. A count error is shown instead of treating a failed query as zero.
 
 ## Email configuration
 

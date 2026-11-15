@@ -9,7 +9,7 @@ type AdminStatus = 'new' | 'read' | 'replied'
 type AdminCounts = {
   inquiries: { total: number; new: number }
   orders: { total: number; new: number }
-  cartLeads: { total: number }
+  cartLeads: { total: number; new: number }
 }
 type AdminDependencies = {
   signIn: (email: string, password: string) => Promise<{ accessToken: string; refreshToken: string; userId: string; email: string } | null>
@@ -76,14 +76,14 @@ const defaultDependencies: AdminDependencies = {
       return count
     }
 
-    const [inquiries, newInquiries, orders, newOrders, cartLeads] = await Promise.all([
+    const [inquiries, newInquiries, orders, newOrders, cartLeads, newCartLeads] = await Promise.all([
       count('inquiries'), count('inquiries', true),
-      count('orders'), count('orders', true), count('cart_leads'),
+      count('orders'), count('orders', true), count('cart_leads'), count('cart_leads', true),
     ])
     return {
       inquiries: { total: inquiries, new: newInquiries },
       orders: { total: orders, new: newOrders },
-      cartLeads: { total: cartLeads },
+      cartLeads: { total: cartLeads, new: newCartLeads },
     }
   },
   async list(table, offset) {

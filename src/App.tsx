@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { categories, diamondsFeatures, faqs, festiveGifts, navItems, products, socialImages, testimonials, trustFeatures, type GoldPurity, type Product } from './data'
-import AdminPage, { AdminLoginPage } from './AdminPage'
+import AdminPage, { AdminLoginPage, useAdminSession } from './AdminPage'
+import { useAdminCounts } from './useAdminCounts'
 
 type CartItem = Product & { quantity: number; selectedPurity: GoldPurity }
 type AddToCart = (product: Product, purity: GoldPurity, quantity?: number) => void
@@ -89,6 +90,8 @@ const getInitialWishlistPurities = (): Record<string, GoldPurity> => readStorage
 
 function App() {
   const location = useLocation()
+  const session = useAdminSession()
+  const { counts, error: countsError, refresh: refreshCounts } = useAdminCounts(session.token)
   const [cart, setCart] = useState<CartItem[]>(getInitialCart)
   const [wishlist, setWishlist] = useState<string[]>(getInitialWishlist)
   const [wishlistPurities, setWishlistPurities] = useState<Record<string, GoldPurity>>(getInitialWishlistPurities)
@@ -162,6 +165,8 @@ function App() {
         cartCount={cart.reduce((sum: number, item: CartItem) => sum + item.quantity, 0)}
         wishlistCount={wishlist.length}
         onCartClick={() => setCartOpen(true)}
+        notificationCount={session.token && counts && !countsError ? counts.inquiries.new + counts.orders.new + counts.cartLeads.new : 0}
+        notificationError={Boolean(session.token && countsError)}
       />
       <main className="app-shell">
         <Routes>
@@ -175,8 +180,8 @@ function App() {
           <Route path="/product/:productId" element={<ProductDetailPage addToCart={addToCart} toggleWishlist={toggleWishlist} wishlist={wishlist} wishlistPurities={wishlistPurities} updateWishlistPurity={updateWishlistPurity} />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/checkout" element={<CheckoutPage cart={cart} updateCartItem={updateCartItem} onOrderPlaced={() => { setCart([]); setCartOpen(false) }} />} />
-          <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/login" element={<AdminLoginPage session={session} />} />
+          <Route path="/admin" element={<AdminPage session={session} counts={counts} countsError={countsError} refreshCounts={refreshCounts} />} />
           <Route path="/admin/*" element={<Navigate to="/admin/login" replace />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
@@ -204,7 +209,9 @@ function App() {
   )
 }
 
-function Header({ cartCount, onCartClick, wishlistCount }: { cartCount: number; onCartClick: () => void; wishlistCount: number }) {
+function Header({ cartCount, onCartClick, wishlistCount, notificationCount, notificationError }: {
+  cartCount: number; onCartClick: () => void; wishlistCount: number; notificationCount: number; notificationError: boolean
+}) {
   const [scrolled, setScrolled] = useState(false)
   const navigate = useNavigate()
 
@@ -248,14 +255,16 @@ function Header({ cartCount, onCartClick, wishlistCount }: { cartCount: number; 
                 <NavLink
                   to="/admin"
                   className={({ isActive }) => (isActive ? 'nav-link admin-nav-link active' : 'nav-link admin-nav-link')}
-                  aria-label="Admin panel"
-                  title="Admin panel"
+                  aria-label={notificationCount > 0 ? `Admin panel, ${notificationCount} new records`
+                    : notificationError ? 'Admin panel, notification count unavailable' : 'Admin panel'}
+                  title={notificationError ? 'Admin panel - notification count unavailable' : 'Admin panel'}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 3 19 6v5.1c0 4.7-2.9 7.8-7 9.9-4.1-2.1-7-5.2-7-9.9V6l7-3Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
                     <circle cx="12" cy="9.8" r="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
                     <path d="M8.8 16.8c.6-1.6 1.7-2.4 3.2-2.4s2.6.8 3.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
+                  {notificationCount > 0 && <span className="admin-notification-badge" aria-hidden="true">{notificationCount}</span>}
                 </NavLink>
               </span>
             )

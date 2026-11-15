@@ -135,7 +135,7 @@ describe('contact inquiries in the admin panel', () => {
     }
     try {
       expect(await getCounts()).toEqual({
-        inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 },
+        inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 },
       })
       const customer = { name: 'Test Customer', phone: '+919876543210', address: '10 Test Road', city: 'Delhi', state: 'Delhi', pincode: '110001' }
       const items = [{ productId: 'celeste-diamond-ring', goldPurity: '18K', quantity: 1 }]
@@ -144,15 +144,19 @@ describe('contact inquiries in the admin panel', () => {
       expect((await post('/api/cart-leads', { customer, items })).status).toBe(201)
       rows.inquiries.push(...Array.from({ length: 51 }, (_, index) => ({ id: index + 2, admin_status: 'read' })))
       expect(await getCounts()).toEqual({
-        inquiries: { total: 52, new: 1 }, orders: { total: 1, new: 1 }, cartLeads: { total: 1 },
+        inquiries: { total: 52, new: 1 }, orders: { total: 1, new: 1 }, cartLeads: { total: 1, new: 1 },
       })
       expect((await fetch(`${base}/api/admin/inquiries/1/status`, {
         method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ status: 'replied' }),
       })).status).toBe(200)
       expect((await fetch(`${base}/api/admin/orders/1`, { method: 'DELETE', headers: adminHeaders })).status).toBe(200)
       expect(await getCounts()).toEqual({
-        inquiries: { total: 52, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 1 },
+        inquiries: { total: 52, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 1, new: 1 },
       })
+      expect((await fetch(`${base}/api/admin/cart_leads/1/status`, {
+        method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ status: 'read' }),
+      })).status).toBe(200)
+      expect((await getCounts()).cartLeads).toEqual({ total: 1, new: 0 })
       failCount = true
       const failed = await fetch(`${base}/api/admin/counts`, { headers: adminHeaders })
       expect(failed.status).toBe(500)

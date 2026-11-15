@@ -3,7 +3,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 export type AdminCounts = {
   inquiries: { total: number; new: number }
   orders: { total: number; new: number }
-  cartLeads: { total: number }
+  cartLeads: { total: number; new: number }
 }
 
 export class AdminRequestError extends Error {
@@ -46,12 +46,14 @@ export async function getAdminCounts(token: string): Promise<AdminCounts> {
   const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
   if (!isObject(result) || !isObject(result.inquiries) || !isObject(result.orders) || !isObject(result.cartLeads)
     || !isCount(result.inquiries.total) || !isCount(result.inquiries.new)
-    || !isCount(result.orders.total) || !isCount(result.orders.new) || !isCount(result.cartLeads.total)) {
+    || !isCount(result.orders.total) || !isCount(result.orders.new)
+    || !isCount(result.cartLeads.total) || !isCount(result.cartLeads.new)
+    || !Number.isSafeInteger(result.inquiries.new + result.orders.new + result.cartLeads.new)) {
     throw new AdminRequestError('The admin API returned invalid dashboard counts.', 0)
   }
   return {
     inquiries: { total: result.inquiries.total, new: result.inquiries.new },
     orders: { total: result.orders.total, new: result.orders.new },
-    cartLeads: { total: result.cartLeads.total },
+    cartLeads: { total: result.cartLeads.total, new: result.cartLeads.new },
   }
 }

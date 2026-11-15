@@ -27,7 +27,7 @@ describe('admin API response handling', () => {
   })
 
   it('accepts zero and nonzero counts and sends admin credentials', async () => {
-    const counts = { inquiries: { total: 57, new: 2 }, orders: { total: 0, new: 0 }, cartLeads: { total: 1 } }
+    const counts = { inquiries: { total: 57, new: 2 }, orders: { total: 0, new: 0 }, cartLeads: { total: 1, new: 1 } }
     const fetchMock = vi.fn().mockResolvedValue(Response.json(counts))
     vi.stubGlobal('fetch', fetchMock)
     await expect(getAdminCounts('test-token')).resolves.toEqual(counts)
@@ -37,9 +37,11 @@ describe('admin API response handling', () => {
   })
 
   it.each([
-    { inquiries: { total: null, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 } },
-    { inquiries: { total: -1, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 } },
-    { inquiries: { total: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 } },
+    { inquiries: { total: null, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 } },
+    { inquiries: { total: -1, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 } },
+    { inquiries: { total: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0, new: 0 } },
+    { inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 } },
+    { inquiries: { total: Number.MAX_SAFE_INTEGER, new: Number.MAX_SAFE_INTEGER }, orders: { total: 1, new: 1 }, cartLeads: { total: 0, new: 0 } },
   ])('reports malformed counts instead of showing misleading values', async (counts) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(counts)))
     await expect(getAdminCounts('test-token')).rejects.toThrow('invalid dashboard counts')

@@ -64,6 +64,15 @@ export async function clearAdminSession(): Promise<void> {
     } catch {
       throw new Error('Could not clear the admin session on this device. Check your browser settings.')
     }
+
     throw new Error('The local session was cleared, but the server could not revoke it. Please check your connection.')
   }
+}
+
+export async function clearRejectedSession(rejectedToken: string): Promise<boolean> {
+  const { data, error } = await adminClient().auth.getSession()
+  if (error) throw new Error('Could not verify the admin session. Please check your connection.')
+  if (data.session && data.session.access_token !== rejectedToken) return false
+  if (data.session) await clearAdminSession()
+  return true
 }
