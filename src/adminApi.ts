@@ -1,5 +1,11 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
+export type AdminCounts = {
+  inquiries: { total: number; new: number }
+  orders: { total: number; new: number }
+  cartLeads: { total: number }
+}
+
 export class AdminRequestError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
@@ -32,4 +38,20 @@ export async function adminRequest<T>(path: string, token?: string, method = 'GE
     throw new AdminRequestError(message, response.status)
   }
   return data as T
+}
+
+export async function getAdminCounts(token: string): Promise<AdminCounts> {
+  const result = await adminRequest<unknown>('/counts', token)
+  const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+  const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+  if (!isObject(result) || !isObject(result.inquiries) || !isObject(result.orders) || !isObject(result.cartLeads)
+    || !isCount(result.inquiries.total) || !isCount(result.inquiries.new)
+    || !isCount(result.orders.total) || !isCount(result.orders.new) || !isCount(result.cartLeads.total)) {
+    throw new AdminRequestError('The admin API returned invalid dashboard counts.', 0)
+  }
+  return {
+    inquiries: { total: result.inquiries.total, new: result.inquiries.new },
+    orders: { total: result.orders.total, new: result.orders.new },
+    cartLeads: { total: result.cartLeads.total },
+  }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { adminRequest, AdminRequestError } from './adminApi'
+import { adminRequest, AdminRequestError, getAdminCounts, type AdminCounts } from './adminApi'
+import { adminClient, adminSessionClearedEvent, adminSessionStorageKey, clearAdminSession, signInAdmin } from './adminSession'
 
 type TableName = 'inquiries' | 'orders' | 'cart_leads'
 type AdminStatus = 'new' | 'read' | 'replied'
@@ -11,27 +12,66 @@ type RecordData = {
   [key: string]: unknown
 }
 
-const sessionStorageKey = 'shreeYashAdminSession'
 const sections: { value: TableName; label: string }[] = [
   { value: 'inquiries', label: 'Enquiries' },
   { value: 'orders', label: 'Orders' },
   { value: 'cart_leads', label: 'Cart requests' },
 ]
 
-function storedAdminToken(): string {
-  try {
-    return window.sessionStorage.getItem(sessionStorageKey) ?? ''
-  } catch {
-    return ''
-  }
+function useAdminSession() {
+  const [session, setSession] = useState({ token: '', loading: true, error: '' })
+  useEffect(() => {
+    let active = true
+    let version = 0
+    try {
+      const auth = adminClient().auth
+      const { data: { subscription } } = auth.onAuthStateChange((event, current) => {
+        if (!active || event === 'INITIAL_SESSION') return
+        version += 1
+        setSession({ token: current?.access_token ?? '', loading: false, error: '' })
+      })
+      const onCleared = () => {
+        version += 1
+        setSession({ token: '', loading: false, error: '' })
+      }
+      const onStorage = (event: StorageEvent) => {
+        if (event.key === adminSessionStorageKey && event.newValue === null) onCleared()
+      }
+      window.addEventListener(adminSessionClearedEvent, onCleared)
+      window.addEventListener('storage', onStorage)
+      const initialVersion = version
+      void auth.getSession().then(({ data, error }) => {
+        if (!active || version !== initialVersion) return
+        setSession({
+          token: data.session?.access_token ?? '',
+          loading: false,
+          error: error ? 'Could not restore the admin session. Check your connection and try again.' : '',
+        })
+      }).catch(() => {
+        if (active && version === initialVersion) {
+          setSession({ token: '', loading: false, error: 'Could not restore the admin session. Check your connection and try again.' })
+        }
+      })
+      return () => {
+        active = false
+        subscription.unsubscribe()
+        window.removeEventListener(adminSessionClearedEvent, onCleared)
+        window.removeEventListener('storage', onStorage)
+      }
+    } catch (error) {
+      setSession({ token: '', loading: false, error: error instanceof Error ? error.message : 'Could not initialize admin login.' })
+      return () => { active = false }
+    }
+  }, [])
+  return session
 }
 
-function clearStoredAdminToken() {
-  try {
-    window.sessionStorage.removeItem(sessionStorageKey)
-  } catch {
-    // The in-memory token is still cleared; it cannot authorize another request without server validation.
-  }
+async function clearRejectedSession(rejectedToken: string) {
+  const { data, error } = await adminClient().auth.getSession()
+  if (error) throw new Error('Could not verify the admin session. Please check your connection.')
+  if (data.session && data.session.access_token !== rejectedToken) return false
+  if (data.session) await clearAdminSession()
+  return true
 }
 
 function details(value: unknown): string {
@@ -80,39 +120,37 @@ export function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(routeError)
   const [busy, setBusy] = useState(false)
-  const [checkingSession, setCheckingSession] = useState(Boolean(storedAdminToken()))
+  const session = useAdminSession()
+  const [checkingSession, setCheckingSession] = useState(false)
 
   useEffect(() => {
-    const token = storedAdminToken()
-    if (!token) {
+    if (!session.token) {
       setCheckingSession(false)
       return
     }
 
     let active = true
-    adminRequest('/session', token)
+    setCheckingSession(true)
+    adminRequest('/session', session.token)
       .then(() => { if (active) navigate('/admin', { replace: true }) })
-      .catch((err: Error) => {
+      .catch(async (err: Error) => {
         if (!active) return
-        if (err instanceof AdminRequestError && err.status === 401) clearStoredAdminToken()
-        else setError(err.message)
+        if (err instanceof AdminRequestError && err.status === 401) {
+          try { await clearRejectedSession(session.token) }
+          catch (clearError) { if (active) setError(clearError instanceof Error ? clearError.message : 'Could not clear the session.') }
+        } else setError(err.message)
       })
       .finally(() => { if (active) setCheckingSession(false) })
 
     return () => { active = false }
-  }, [navigate])
+  }, [navigate, session.token])
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
     setError('')
     try {
-      const result = await adminRequest<{ token: string }>('/login', undefined, 'POST', { email, password })
-      try {
-        window.sessionStorage.setItem(sessionStorageKey, result.token)
-      } catch {
-        throw new Error('This browser could not save your admin session. Enable session storage and try again.')
-      }
+      await signInAdmin(email, password)
       setPassword('')
       navigate('/admin', { replace: true })
     } catch (err) {
@@ -122,7 +160,7 @@ export function AdminLoginPage() {
     }
   }
 
-  if (checkingSession) {
+  if (session.loading || checkingSession) {
     return <section className="container section-block admin-page"><p role="status">Verifying admin session…</p></section>
   }
 
@@ -133,7 +171,7 @@ export function AdminLoginPage() {
         <h1>Admin Login</h1>
         <p>Sign in with your authorized account to continue.</p>
       </div>
-      {error && <p className="inquiry-error" role="alert">{error}</p>}
+      {(error || session.error) && <p className="inquiry-error" role="alert">{error || session.error}</p>}
       <form className="contact-form admin-login" onSubmit={(event) => void login(event)}>
         <label>Email
           <input
@@ -177,56 +215,124 @@ export function AdminLoginPage() {
 
 export default function AdminPage() {
   const navigate = useNavigate()
-  const [token, setToken] = useState(storedAdminToken)
-  const [authorized, setAuthorized] = useState(false)
-  const [checkingSession, setCheckingSession] = useState(Boolean(storedAdminToken()))
+  const session = useAdminSession()
+  const token = session.token
+  const [verifiedToken, setVerifiedToken] = useState('')
+  const [checkingSession, setCheckingSession] = useState(false)
+  const [sessionCheckVersion, setSessionCheckVersion] = useState(0)
   const [table, setTable] = useState<TableName>('inquiries')
   const [offset, setOffset] = useState(0)
   const [records, setRecords] = useState<RecordData[]>([])
   const [recordsVersion, setRecordsVersion] = useState(0)
+  const [counts, setCounts] = useState<AdminCounts | null>(null)
+  const [countsError, setCountsError] = useState('')
+  const [countsVersion, setCountsVersion] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => {
     if (!token) return
     let active = true
     setCheckingSession(true)
+    setVerifiedToken('')
     adminRequest('/session', token)
-      .then(() => { if (active) setAuthorized(true) })
-      .catch((err: Error) => {
+      .then(() => { if (active) { setVerifiedToken(token); setError('') } })
+      .catch(async (err: Error) => {
         if (!active) return
-        clearStoredAdminToken()
-        setToken('')
-        setAuthorized(false)
+        if (err instanceof AdminRequestError && err.status === 401) {
+          try { await clearRejectedSession(token) }
+          catch (clearError) { if (active) setError(clearError instanceof Error ? clearError.message : 'Could not clear the session.'); return }
+        }
         setError(err.message)
       })
       .finally(() => { if (active) setCheckingSession(false) })
     return () => { active = false }
-  }, [token])
+  }, [token, sessionCheckVersion])
 
   useEffect(() => {
-    if (!token || !authorized) return
+    if (!token || verifiedToken !== token) return
     let active = true
     setRecords([])
     setError('')
     setBusy(true)
     adminRequest<{ records: RecordData[] }>(`/${table}?offset=${offset}`, token)
       .then((data) => { if (active) setRecords(data.records) })
-      .catch((err: Error) => {
-        if (active) {
-          if (err instanceof AdminRequestError && err.status === 401) {
-            clearStoredAdminToken()
-            setToken('')
-            setAuthorized(false)
+      .catch(async (err: Error) => {
+        if (!active) return
+        if (err instanceof AdminRequestError && err.status === 401) {
+          try {
+            if (await clearRejectedSession(token) && active) {
+              setVerifiedToken('')
+              setRecords([])
+            }
+          } catch (clearError) {
+            if (active) {
+              setVerifiedToken('')
+              setRecords([])
+              setError(clearError instanceof Error ? clearError.message : 'Could not clear the session.')
+            }
+            return
           }
-          setError(err.message)
         }
+        if (active) setError(err.message)
       })
       .finally(() => { if (active) setBusy(false) })
     return () => { active = false }
-  }, [token, authorized, table, offset, recordsVersion])
+  }, [token, verifiedToken, table, offset, recordsVersion])
+
+  useEffect(() => {
+    if (!token || verifiedToken !== token) return
+    let active = true
+    let inFlight = false
+    let timer: number | undefined
+
+    async function refreshCounts() {
+      if (!active || inFlight) return
+      inFlight = true
+      if (timer !== undefined) window.clearTimeout(timer)
+      try {
+        const result = await getAdminCounts(token)
+        if (active) {
+          setCounts(result)
+          setCountsError('')
+        }
+      } catch (err) {
+        if (!active) return
+        if (err instanceof AdminRequestError && err.status === 401) {
+          try {
+            if (await clearRejectedSession(token) && active) {
+              setVerifiedToken('')
+              setRecords([])
+            }
+          } catch (clearError) {
+            if (active) setCountsError(clearError instanceof Error ? clearError.message : 'Could not clear the session.')
+            return
+          }
+        }
+        if (active) setCountsError(err instanceof Error ? err.message : 'Could not load dashboard counts.')
+      } finally {
+        inFlight = false
+        if (active) timer = window.setTimeout(() => void refreshCounts(), 15000)
+      }
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshCounts()
+    }
+    setCounts(null)
+    setCountsError('')
+    void refreshCounts()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      active = false
+      if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [token, verifiedToken, countsVersion])
 
   async function logout() {
+    setLoggingOut(true)
     setBusy(true)
     setError('')
     let logoutError = ''
@@ -235,9 +341,9 @@ export default function AdminPage() {
     } catch (err) {
       logoutError = err instanceof Error ? err.message : 'Logout failed.'
     } finally {
-      clearStoredAdminToken()
-      setToken('')
-      setAuthorized(false)
+      try { await clearAdminSession() }
+      catch (err) { logoutError = logoutError || (err instanceof Error ? err.message : 'Logout failed.') }
+      setVerifiedToken('')
       setRecords([])
       setBusy(false)
       navigate('/admin/login', { replace: true, state: logoutError ? { error: logoutError } : undefined })
@@ -250,12 +356,16 @@ export default function AdminPage() {
     try {
       await adminRequest(`/${table}/${id}/status`, token, 'PATCH', { status })
       setRecords((current) => current.map((record) => record.id === id ? { ...record, admin_status: status } : record))
+      setCountsVersion((value) => value + 1)
     } catch (err) {
       if (err instanceof AdminRequestError && err.status === 401) {
-        clearStoredAdminToken()
-        setToken('')
-        setAuthorized(false)
-        setRecords([])
+        try {
+          if (await clearRejectedSession(token)) {
+            setVerifiedToken('')
+            setRecords([])
+          }
+        }
+        catch (clearError) { setError(clearError instanceof Error ? clearError.message : 'Could not clear the session.'); return }
       }
       setError(err instanceof Error ? err.message : 'Status update failed.')
     } finally {
@@ -270,14 +380,18 @@ export default function AdminPage() {
     try {
       await adminRequest(`/${table}/${id}`, token, 'DELETE')
       setRecords((current) => current.filter((record) => record.id !== id))
+      setCountsVersion((value) => value + 1)
       if (records.length === 1 && offset > 0) setOffset((value) => Math.max(0, value - 50))
       else setRecordsVersion((value) => value + 1)
     } catch (err) {
       if (err instanceof AdminRequestError && err.status === 401) {
-        clearStoredAdminToken()
-        setToken('')
-        setAuthorized(false)
-        setRecords([])
+        try {
+          if (await clearRejectedSession(token)) {
+            setVerifiedToken('')
+            setRecords([])
+          }
+        }
+        catch (clearError) { setError(clearError instanceof Error ? clearError.message : 'Could not clear the session.'); return }
       }
       setError(err instanceof Error ? err.message : 'Delete failed.')
     } finally {
@@ -285,15 +399,34 @@ export default function AdminPage() {
     }
   }
 
-  if (!token) return <Navigate to="/admin/login" replace state={error ? { error } : undefined} />
-  if (checkingSession || !authorized) {
+  if (session.loading || loggingOut) {
     return <section className="container section-block admin-page"><p role="status">Verifying admin session…</p></section>
+  }
+  if (!token) return <Navigate to="/admin/login" replace state={error || session.error ? { error: error || session.error } : undefined} />
+  if (checkingSession || verifiedToken !== token) {
+    return <section className="container section-block admin-page">
+      {error && !checkingSession
+        ? <><p className="inquiry-error" role="alert">{error}</p><button type="button" onClick={() => setSessionCheckVersion((value) => value + 1)}>Retry</button></>
+        : <p role="status">Verifying admin session…</p>}
+    </section>
   }
 
   return (
     <section className="container section-block admin-page">
       <div className="page-heading"><p className="eyebrow">Shree Yash</p><h1>Admin dashboard</h1></div>
       {error && <p className="inquiry-error" role="alert">{error}</p>}
+      <section className="admin-summary" aria-label="Dashboard counts">
+        {countsError && <p className="inquiry-error" role="alert">Could not refresh dashboard counts: {countsError}</p>}
+        {!counts && !countsError && <p role="status">Loading dashboard counts…</p>}
+        {counts && <dl className="admin-counts">
+          <div><dt>Inquiries</dt><dd>{counts.inquiries.total}</dd></div>
+          <div><dt>New inquiries</dt><dd>{counts.inquiries.new}</dd></div>
+          <div><dt>Orders</dt><dd>{counts.orders.total}</dd></div>
+          <div><dt>New orders</dt><dd>{counts.orders.new}</dd></div>
+          <div><dt>Cart leads</dt><dd>{counts.cartLeads.total}</dd></div>
+        </dl>}
+        {countsError && <button type="button" onClick={() => setCountsVersion((value) => value + 1)}>Retry counts</button>}
+      </section>
       <div className="admin-toolbar">
         <div className="admin-tabs">
           {sections.map((section) => <button key={section.value} type="button" disabled={busy} aria-pressed={section.value === table}

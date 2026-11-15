@@ -7,12 +7,15 @@ vi.mock('./supabase', () => ({ supabase: {} }))
 function setup() {
   const deps = {
     signIn: vi.fn().mockResolvedValue({
-      accessToken: 'header.payload.signature', userId: 'admin-id', email: 'admin@example.com', expiresAt: Date.now() + 60000,
+      accessToken: 'header.payload.signature', refreshToken: 'refresh-token', userId: 'admin-id', email: 'admin@example.com',
     }),
     getUser: vi.fn().mockImplementation(async (token: string) => token === 'header.payload.signature'
       ? { userId: 'admin-id', email: 'admin@example.com' } : null),
     isAdminEmail: vi.fn().mockResolvedValue(true),
     signOut: vi.fn().mockResolvedValue(undefined),
+    counts: vi.fn().mockResolvedValue({
+      inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 },
+    }),
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
     update: vi.fn().mockResolvedValue(true),
     remove: vi.fn().mockResolvedValue(true),
@@ -41,12 +44,30 @@ async function login(base: string) {
   })
   expect(response.status).toBe(200)
   expect(response.headers.get('cache-control')).toBe('no-store')
-  const data: { token: string } = await response.json()
+  const data: { token: string; refreshToken: string } = await response.json()
+  expect(data.refreshToken).toBe('refresh-token')
   return data.token
 }
 
 describe('admin authentication and APIs', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('only returns counts to authorized admins', async () => {
+    await withServer(async (base, deps) => {
+      expect((await fetch(`${base}/counts`)).status).toBe(401)
+      expect((await fetch(`${base}/counts`, { headers: { Authorization: 'Bearer fake' } })).status).toBe(401)
+      const headers = { Authorization: `Bearer ${await login(base)}` }
+      deps.isAdminEmail.mockResolvedValueOnce(false)
+      expect((await fetch(`${base}/counts`, { headers })).status).toBe(401)
+      expect(deps.counts).not.toHaveBeenCalled()
+      const response = await fetch(`${base}/counts`, { headers })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(await response.json()).toEqual({
+        inquiries: { total: 0, new: 0 }, orders: { total: 0, new: 0 }, cartLeads: { total: 0 },
+      })
+    })
+  })
 
   it('authenticates, lists records, updates each allowed status, and logs out', async () => {
     await withServer(async (base, deps) => {
@@ -81,12 +102,14 @@ describe('admin authentication and APIs', () => {
         body: JSON.stringify({ email: 'admin@example.com', password: 'bad' }),
       })).status).toBe(401)
       deps.signIn.mockResolvedValueOnce({
-        accessToken: 'other', userId: 'other-id', email: 'other@example.com', expiresAt: Date.now() + 60000,
+        accessToken: 'other', refreshToken: 'other-refresh', userId: 'other-id', email: 'other@example.com',
       })
-      expect((await fetch(`${base}/login`, {
+      const unauthorized = await fetch(`${base}/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'other@example.com', password: 'password' }),
-      })).status).toBe(403)
+      })
+      expect(unauthorized.status).toBe(403)
+      expect(await unauthorized.json()).not.toHaveProperty('refreshToken')
       expect(deps.signOut).toHaveBeenCalledWith('other')
       expect(deps.list).not.toHaveBeenCalled()
     })
@@ -100,6 +123,7 @@ describe('admin authentication and APIs', () => {
         body: JSON.stringify({ email: 'admin@example.com', password: 'password' }),
       })
       expect(response.status).toBe(403)
+      expect(await response.json()).not.toHaveProperty('refreshToken')
       expect(deps.signOut).toHaveBeenCalledWith('header.payload.signature')
       expect(deps.list).not.toHaveBeenCalled()
     })
@@ -138,7 +162,7 @@ describe('admin authentication and APIs', () => {
 
   it('rejects expired sessions without reading data', async () => {
     await withServer(async (base, deps) => {
-      deps.signIn.mockResolvedValueOnce({ accessToken: 'expired', userId: 'admin-id', expiresAt: Date.now() - 1 })
+      deps.signIn.mockResolvedValueOnce({ accessToken: 'expired', refreshToken: 'refresh-token', userId: 'admin-id', email: 'admin@example.com' })
       const token = await login(base)
       expect((await fetch(`${base}/orders`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(401)
       expect(deps.getUser).toHaveBeenCalledWith('expired')

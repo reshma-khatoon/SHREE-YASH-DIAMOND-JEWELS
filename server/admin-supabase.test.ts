@@ -33,7 +33,7 @@ describe('admin Supabase integration', () => {
     mocks.signIn.mockResolvedValue({
       data: {
         user: { id: 'admin-id', email: 'Admin@example.test' },
-        session: { access_token: 'supabase-token', expires_at: Math.floor(Date.now() / 1000) + 60 },
+        session: { access_token: 'supabase-token', refresh_token: 'supabase-refresh-token', expires_at: Math.floor(Date.now() / 1000) + 60 },
       },
       error: null,
     })
@@ -57,7 +57,8 @@ describe('admin Supabase integration', () => {
       expect(mocks.signIn).toHaveBeenCalledWith({ email: 'Admin@example.test', password: 'test-password' })
       expect(mocks.from).toHaveBeenCalledWith('admins')
       expect(mocks.select).toHaveBeenCalledWith('email')
-      const { token } = await login.json() as { token: string }
+      const { token, refreshToken } = await login.json() as { token: string; refreshToken: string }
+      expect(refreshToken).toBe('supabase-refresh-token')
       const headers = { Authorization: `Bearer ${token}` }
       expect((await fetch(`${base}/session`, { headers })).status).toBe(200)
       expect(mocks.getUser).toHaveBeenCalledWith('supabase-token')

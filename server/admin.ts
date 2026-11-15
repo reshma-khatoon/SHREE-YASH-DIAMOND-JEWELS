@@ -6,11 +6,17 @@ import { supabase } from './supabase.js'
 const tableNames = ['inquiries', 'orders', 'cart_leads'] as const
 type TableName = typeof tableNames[number]
 type AdminStatus = 'new' | 'read' | 'replied'
+type AdminCounts = {
+  inquiries: { total: number; new: number }
+  orders: { total: number; new: number }
+  cartLeads: { total: number }
+}
 type AdminDependencies = {
-  signIn: (email: string, password: string) => Promise<{ accessToken: string; userId: string; email: string; expiresAt: number } | null>
+  signIn: (email: string, password: string) => Promise<{ accessToken: string; refreshToken: string; userId: string; email: string } | null>
   getUser: (accessToken: string) => Promise<{ userId: string; email: string } | null>
   isAdminEmail: (email: string) => Promise<boolean>
   signOut: (accessToken: string) => Promise<void>
+  counts: () => Promise<AdminCounts>
   list: (table: TableName, offset: number) => Promise<unknown[]>
   update: (table: TableName, id: number, status: AdminStatus) => Promise<boolean>
   remove: (table: TableName, id: number) => Promise<boolean>
@@ -31,14 +37,14 @@ const defaultDependencies: AdminDependencies = {
       if (error.status === 400 || error.status === 401) return null
       throw new Error(`Supabase authentication failed: ${error.message}`)
     }
-    if (!data.session || !data.session.expires_at || !data.user.email) {
+    if (!data.session?.access_token || !data.session.refresh_token || !data.user.email) {
       throw new Error('Supabase authentication returned no session or email')
     }
     return {
       accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
       userId: data.user.id,
       email: data.user.email,
-      expiresAt: data.session.expires_at * 1000,
     }
   },
   async getUser(accessToken) {
@@ -58,6 +64,27 @@ const defaultDependencies: AdminDependencies = {
   async signOut(accessToken) {
     const { error } = await supabase.auth.admin.signOut(accessToken, 'local')
     if (error) throw new Error(`Supabase logout failed: ${error.message}`)
+  },
+  async counts() {
+    async function count(table: TableName, onlyNew = false): Promise<number> {
+      const query = supabase.from(table).select('id', { count: 'exact', head: true })
+      const { count, error } = await (onlyNew ? query.eq('admin_status', 'new') : query)
+      if (error) throw new Error(`Could not count ${table}: ${error.message}`)
+      if (count === null || !Number.isSafeInteger(count) || count < 0) {
+        throw new Error(`Could not count ${table}: Supabase returned an invalid count`)
+      }
+      return count
+    }
+
+    const [inquiries, newInquiries, orders, newOrders, cartLeads] = await Promise.all([
+      count('inquiries'), count('inquiries', true),
+      count('orders'), count('orders', true), count('cart_leads'),
+    ])
+    return {
+      inquiries: { total: inquiries, new: newInquiries },
+      orders: { total: orders, new: newOrders },
+      cartLeads: { total: cartLeads },
+    }
   },
   async list(table, offset) {
     const { data, error } = await supabase.from(table).select('*,admin_status')
@@ -111,7 +138,7 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       res.status(403).json({ error: 'Invalid credentials or unauthorized account.' })
       return
     }
-    res.json({ token: auth.accessToken })
+    res.json({ token: auth.accessToken, refreshToken: auth.refreshToken })
   })
 
   router.use(async (req, res, next) => {
@@ -140,6 +167,10 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
     const token: string = res.locals.adminToken
     await deps.signOut(token)
     res.json({ ok: true })
+  })
+
+  router.get('/counts', async (_req, res) => {
+    res.json(await deps.counts())
   })
 
   router.get('/:table', async (req, res) => {

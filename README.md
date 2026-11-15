@@ -6,7 +6,7 @@ The storefront uses a small Express API. It saves valid contact and product enqu
 
 Requirements: Node.js 20.19+ or 22.12+.
 
-1. Copy `.env.example` to `.env` if it does not exist. Set the backend-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for the existing project. SMTP settings are optional; leave them blank to test saving submissions without email. Do not commit `.env` or expose the service role key through a `VITE_` variable.
+1. Copy `.env.example` to `.env` if it does not exist. Set the backend-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for the existing project. For admin login, also configure the public `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as described below. SMTP settings are optional; leave them blank to test saving submissions without email. Do not commit `.env` or expose the service role key through a `VITE_` variable.
 2. Run:
 
    ```powershell
@@ -34,12 +34,15 @@ The Supabase URL is available in the project dashboard's Connect or API settings
 ## Admin sign-in and dashboard
 
 1. Review and apply `supabase/migrations/003_admin_dashboard.sql` in the Supabase SQL Editor for the project. It adds a separate `admin_status` to the three existing tables, enables RLS, and revokes direct client access. It does not change order fulfilment status. Do not rerun migrations 001 or 002 for this setup. The submission API uses the service role and remains responsible for writes.
-2. The existing `public.admins` table authorizes accounts by email. In Authentication → Users, copy each authorized user's UID to the backend `.env` as `ADMIN_USER_IDS=<uid>`; separate multiple explicitly authorized UIDs with commas. A user must match both the UID allow-list and an email in `public.admins`. No registration system is provided. Set `SUPABASE_ANON_KEY` to the project's public anon key (or keep the existing `VITE_SUPABASE_ANON_KEY`). Never put the service role key in a `VITE_` variable.
-3. Restart the backend and open `/admin/login` (or use the Admin icon in the navbar). Sign in with an existing authorized Supabase Auth account. The frontend stores the Supabase access token in per-tab `sessionStorage` so refreshes stay signed in; the backend revalidates the Supabase user, configured UID allow-list, and `public.admins` email on each admin API request. The dashboard's New/Read/Replied status is independent of order fulfilment status.
+2. The existing `public.admins` table authorizes accounts by email. In Authentication → Users, copy each authorized user's UID to the backend `.env` as `ADMIN_USER_IDS=<uid>`; separate multiple explicitly authorized UIDs with commas. A user must match both the UID allow-list and an email in `public.admins`. No registration system is provided. Set backend `SUPABASE_ANON_KEY` to the project's public anon key (or use `VITE_SUPABASE_ANON_KEY`). Never put the service role key in a `VITE_` variable.
+3. Set `VITE_SUPABASE_URL` to the same project URL as `SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` to the same project's public anon or publishable key. These two values are included in the frontend build and must not contain secret or service-role keys. Restart both the frontend and backend after changing local settings.
+4. Open `/admin/login` (or use the Admin icon in the navbar) and sign in with an existing authorized account. The Supabase client stores the access and refresh tokens in browser local storage and refreshes the session automatically. A session can survive browser restarts until it expires, is revoked, or the admin logs out. The old per-tab session cannot be upgraded automatically; sign in once after deploying this change. The backend still revalidates the Supabase user, configured UID allow-list, and `public.admins` email on every admin API request. The dashboard's New/Read/Replied status is independent of order fulfilment status.
 
-The access token expires according to the Supabase project's JWT expiry setting; there is no automatic refresh. Logout clears the browser token and calls Supabase sign-out, but Supabase access tokens cannot be revoked before expiry. A copied token may therefore remain usable until it expires, unless the user or admin authorization is removed. Use HTTPS wherever credentials and tokens travel over a network.
+Logout clears the session on the current browser and attempts to revoke its refresh token. If the network is unavailable, the local session is removed but server-side revocation may fail; the error is displayed. Supabase access tokens cannot be revoked before expiry, so a copied token may remain usable until expiry unless authorization is removed. Local storage is accessible to scripts running on the site, so use trusted devices, protect against injected scripts, and log out on shared devices. Passwords and the service-role key are never stored in browser storage. Use HTTPS wherever credentials and tokens travel over a network.
 
 Admins can permanently delete individual enquiries, orders, and cart requests after confirming the action. This deletes the underlying Supabase record and cannot be undone.
+
+The dashboard counts all saved inquiries, orders, and cart leads, regardless of the current list page. “New” counts use `admin_status = 'new'`, not order fulfilment status. Counts refresh on dashboard entry, every 15 seconds while it is open, when the tab becomes visible, and after a status change or deletion. A count error is shown instead of treating a failed query as zero.
 
 ## Email configuration
 
@@ -84,7 +87,7 @@ Template parameter whitespace is normalized to spaces. To avoid sending multiple
 
 The Vercel project serves the Vite website and rewrites `/api/*` to the Vercel Function in `api/index.ts`, which runs the existing Express app directly. The current function does not use `API_BACKEND_ORIGIN`.
 
-- In Vercel → Project Settings → Environment Variables, configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` (or the existing `VITE_SUPABASE_ANON_KEY`), `ADMIN_USER_IDS`, `CLIENT_ORIGINS`, and the SMTP and WhatsApp variables described above. Set them for the appropriate Production or Preview environment. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`; include the exact website origins in `CLIENT_ORIGINS`.
+- In Vercel → Project Settings → Environment Variables, configure backend `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_USER_IDS`, `CLIENT_ORIGINS`, and the SMTP and WhatsApp variables described above. Also configure frontend build variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` with the same project's public URL and anon or publishable key. Set them for the appropriate Production or Preview environment. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`; include the exact website origins in `CLIENT_ORIGINS`.
 - Leave `VITE_API_BASE_URL` empty for same-origin requests. If it points to a separate Express service, configure its backend variables and CORS on that service instead; Vercel variables do not configure a separately hosted API.
 - Redeploy after changing variables or application code. Never expose the service role key, SMTP password, or WhatsApp access token in a `VITE_` variable.
 

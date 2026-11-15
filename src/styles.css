@@ -86,6 +86,11 @@ img {
 }
 .admin-password-toggle:hover { color: var(--ink); }
 .admin-password-toggle:focus-visible { outline: 2px solid var(--champagne); outline-offset: 3px; }
+.admin-summary { margin-bottom: 20px; }
+.admin-counts { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; }
+.admin-counts div { flex: 1 1 130px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+.admin-counts dt { color: var(--muted); font-size: 0.85rem; }
+.admin-counts dd { margin: 4px 0 0; font-size: 1.4rem; font-weight: 600; }
 .admin-toolbar, .admin-tabs, .admin-pagination, .admin-record-header {
   display: flex;
   flex-wrap: wrap;
