@@ -236,24 +236,30 @@ function Header({ cartCount, onCartClick, wishlistCount }: { cartCount: number; 
         <nav className="main-nav" aria-label="Main navigation">
           {navItems.map((item) => {
             const to = item === 'Home' ? '/' : item === 'Shop' ? '/shop' : item === 'About Us' ? '/journey' : '/contact'
-            return (
+            const link = (
               <NavLink key={item} to={to} className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
                 {item}
               </NavLink>
             )
+            if (item !== 'Contact') return link
+            return (
+              <span className="nav-contact-admin" key={item}>
+                {link}
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) => (isActive ? 'nav-link admin-nav-link active' : 'nav-link admin-nav-link')}
+                  aria-label="Admin panel"
+                  title="Admin panel"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3 19 6v5.1c0 4.7-2.9 7.8-7 9.9-4.1-2.1-7-5.2-7-9.9V6l7-3Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                    <circle cx="12" cy="9.8" r="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M8.8 16.8c.6-1.6 1.7-2.4 3.2-2.4s2.6.8 3.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </NavLink>
+              </span>
+            )
           })}
-          <NavLink
-            to="/admin/login"
-            className={({ isActive }) => (isActive ? 'nav-link admin-nav-link active' : 'nav-link admin-nav-link')}
-            aria-label="Admin login"
-            title="Admin login"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3 19 6v5.1c0 4.7-2.9 7.8-7 9.9-4.1-2.1-7-5.2-7-9.9V6l7-3Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-              <circle cx="12" cy="9.8" r="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M8.8 16.8c.6-1.6 1.7-2.4 3.2-2.4s2.6.8 3.2 2.4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </NavLink>
         </nav>
         <div className="header-actions">
           <button

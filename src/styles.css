@@ -56,15 +56,21 @@ img {
 
 #root { min-height: 100vh; }
 
-.admin-nav-link {
+.nav-contact-admin { display: inline-flex; align-items: center; gap: 20px; }
+.nav-link.admin-nav-link {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  border: 1px solid var(--champagne);
+  background: var(--white);
+  color: var(--ink);
 }
 .admin-nav-link svg { width: 18px; height: 18px; display: block; }
+.admin-nav-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .admin-login-page { max-width: 640px; padding-top: 48px; }
 .admin-login-page .page-heading { text-align: center; }
 .admin-login-page .page-heading > p:not(.eyebrow) { color: var(--muted); }
@@ -218,6 +224,8 @@ img {
   height: 1px;
   background: var(--ink);
 }
+
+.nav-contact-admin { gap: 16px; }
 
 .header-actions {
   display: flex;
@@ -1642,6 +1650,8 @@ h2 {
     gap: 10px 12px;
     font-size: 0.66rem;
   }
+
+  .nav-contact-admin { gap: 12px; }
 
   .header-actions {
     gap: 8px;
