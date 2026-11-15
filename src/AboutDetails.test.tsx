@@ -32,13 +32,11 @@ describe('About page', () => {
   it('preserves the journey introduction and presents the requested sections in order', () => {
     const html = renderPage('/journey')
     const original = html.indexOf('The Journey Behind Shree Yash')
-    const documents = html.indexOf('The Certificate of Gold Appraisal')
     const approval = html.indexOf('Govt. Approved Gold jewellery , Valuer, Assayer &amp; Hallmark')
     const disclosure = html.indexOf('Searching for Gold Valuer In Delhi NCR ???')
     const description = html.indexOf('Government-Approved Gold &amp; Jewellery Valuers in Delhi')
     expect(original).toBeGreaterThan(-1)
-    expect(documents).toBeGreaterThan(original)
-    expect(approval).toBeGreaterThan(documents)
+    expect(approval).toBeGreaterThan(original)
     expect(disclosure).toBeGreaterThan(approval)
     expect(description).toBeGreaterThan(disclosure)
     expect(html).not.toContain('Gold is not just a precious asset')
@@ -51,11 +49,12 @@ describe('About page', () => {
     expect(html).toContain('07GDWPK7624H1ZV')
   })
 
-  it('provides local placeholders without exposing broken document links', () => {
+  it('omits the certificate section while retaining the approval image', () => {
     const html = renderPage('/journey')
-    expect(html).toContain('<h3>Subhash Kulkarni</h3>')
-    expect(html).toContain('<h3>Vaibhv Kulkarni</h3>')
-    expect(html.match(/>View Certificate<\/button>/g)).toHaveLength(2)
+    expect(html).not.toContain('The Certificate of Gold Appraisal')
+    expect(html).not.toContain('View Certificate')
+    expect(html).not.toContain('/about/documents/')
+    expect(html).not.toContain('about-document-card')
     expect(html).toContain('class="about-photo-gallery about-photo-gallery-single"')
     expect(html).toContain('/about/photos/first/photo-01.jpg')
     expect(html).not.toContain('/about/photos/first/photo-02.jpg')

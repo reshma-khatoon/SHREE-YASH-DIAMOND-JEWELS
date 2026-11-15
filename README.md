@@ -4,12 +4,11 @@ The storefront uses a small Express API. It saves valid contact and product enqu
 
 ## About page assets
 
-The `/journey` page uses these local paths for client-provided files:
+The `/journey` page uses this local path for the client-provided photo:
 
-- `public/about/documents/subhash-kulkarni.pdf` and `public/about/documents/vaibhv-kulkarni.pdf`
 - `public/about/photos/first/photo-01.jpg` for the first gallery
 
-The supplied PDFs and gallery photo are included; deploy them with the site. Missing files are shown as coming soon; PDF buttons become available when the files are served. To use more photographs, add their paths and descriptive alt text to the photo list in `src/AboutDetails.tsx`.
+The supplied gallery photo is included; deploy it with the site. If it is missing, a placeholder is shown. The supplied PDFs remain in `public/about/documents/` but are not displayed on the page. To use more photographs, add their paths and descriptive alt text to the photo list in `src/AboutDetails.tsx`.
 
 ## Run locally
 

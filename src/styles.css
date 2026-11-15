@@ -1018,6 +1018,10 @@ h2 {
   padding: 72px 0 0;
 }
 
+.journey-section + .about-extra-section {
+  padding-top: 52px;
+}
+
 .about-extra-section:last-of-type {
   padding-bottom: 80px;
 }
@@ -1028,54 +1032,6 @@ h2 {
 
 .about-extra-heading h2 {
   margin: 0;
-}
-
-.about-document-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
-.about-document-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-  padding: 28px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--white);
-  box-shadow: var(--shadow);
-}
-
-.about-document-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 52px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--ivory);
-  color: var(--champagne);
-}
-
-.about-document-icon svg {
-  width: 27px;
-  height: 27px;
-}
-
-.about-document-copy h3 {
-  margin: 0 0 16px;
-}
-
-.about-asset-status {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.about-document-card button:disabled:hover {
-  transform: none;
-  box-shadow: none;
 }
 
 .about-photo-gallery {
@@ -1222,7 +1178,7 @@ h2 {
 
 @media (max-width: 700px) {
   .about-extra-section { padding-top: 48px; }
-  .about-document-grid { grid-template-columns: 1fr; }
+  .journey-section + .about-extra-section { padding-top: 28px; }
   .about-photo-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .about-photo-placeholder { min-height: 140px; }
   .about-valuation-summary { grid-template-columns: 44px minmax(0, 1fr); gap: 16px; }

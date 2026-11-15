@@ -1,62 +1,10 @@
-import { useEffect, useState } from 'react'
-
-const documents = [
-  { title: 'Subhash Kulkarni', href: '/about/documents/subhash-kulkarni.pdf' },
-  { title: 'Vaibhv Kulkarni', href: '/about/documents/vaibhv-kulkarni.pdf' },
-]
+import { useState } from 'react'
 
 type Photo = { src: string; alt: string }
 
 const firstPhotos: Photo[] = [
   { src: '/about/photos/first/photo-01.jpg', alt: 'Shree Yash Diamond and Jewels company details' },
 ]
-
-function DocumentCard({ title, href }: { title: string; href: string }) {
-  const [status, setStatus] = useState<'loading' | 'available' | 'missing' | 'error'>('loading')
-
-  useEffect(() => {
-    const controller = new AbortController()
-    async function checkDocument() {
-      try {
-        const response = await fetch(href, { method: 'HEAD', signal: controller.signal })
-        if (controller.signal.aborted) return
-        if (response.status === 404) {
-          setStatus('missing')
-        } else if (!response.ok) {
-          setStatus('error')
-        } else {
-          const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-          setStatus(contentType.includes('application/pdf') || contentType.includes('application/octet-stream') ? 'available' : 'missing')
-        }
-      } catch {
-        if (!controller.signal.aborted) setStatus('error')
-      }
-    }
-    void checkDocument()
-    return () => controller.abort()
-  }, [href])
-
-  return (
-    <article className="about-document-card">
-      <div className="about-document-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M6 3h8l4 4v14H6z" strokeLinejoin="round" />
-          <path d="M14 3v5h4M8.5 13h7M8.5 16h7" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-      <div className="about-document-copy">
-        <p className="eyebrow">PDF document</p>
-        <h3>{title}</h3>
-        {status === 'available'
-          ? <a className="secondary-button small-btn" href={href} target="_blank" rel="noopener noreferrer">View Certificate</a>
-          : <button className="secondary-button small-btn" type="button" disabled>View Certificate</button>}
-        {status === 'loading' && <p className="about-asset-status" role="status">Checking document…</p>}
-        {status === 'missing' && <p className="about-asset-status">Document coming soon.</p>}
-        {status === 'error' && <p className="about-asset-status" role="status">Document temporarily unavailable.</p>}
-      </div>
-    </article>
-  )
-}
 
 function PhotoSlot({ photo }: { photo: Photo }) {
   const [status, setStatus] = useState<'loading' | 'available' | 'missing'>('loading')
@@ -84,15 +32,6 @@ export default function AboutDetails() {
 
   return (
     <>
-      <section className="container about-extra-section" aria-labelledby="about-documents-heading">
-        <div className="about-extra-heading">
-          <h2 id="about-documents-heading">The Certificate of Gold Appraisal</h2>
-        </div>
-        <div className="about-document-grid">
-          {documents.map((document) => <DocumentCard key={document.href} {...document} />)}
-        </div>
-      </section>
-
       <section className="container about-extra-section" aria-labelledby="about-approval-heading">
         <div className="about-extra-heading">
           <h2 id="about-approval-heading">Govt. Approved Gold jewellery , Valuer, Assayer &amp; Hallmark</h2>
