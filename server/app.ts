@@ -88,8 +88,16 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
       .split(',')
       .map((configuredOrigin) => configuredOrigin.trim())
       .filter(Boolean)
-    if (origin && (configuredOrigins.length === 0 && process.env.NODE_ENV === 'production'
-      || configuredOrigins.length > 0 && !isAllowedOrigin(origin, configuredOrigins))) {
+    const rejected = Boolean(origin && (configuredOrigins.length === 0 && process.env.NODE_ENV === 'production'
+      || configuredOrigins.length > 0 && !isAllowedOrigin(origin, configuredOrigins)))
+    // Temporary development diagnostics: never log headers, bodies, or full URLs.
+    if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test'
+      && (rejected || request.path === '/api/admin/login')) {
+      const safeOrigin = origin ? normalizeOrigin(origin) || '(invalid)' : '(none)'
+      const route = request.path === '/api/admin/login' ? '/api/admin/login' : '(other)'
+      console.info('Development origin check:', { method: request.method, route, origin: safeOrigin, rejected })
+    }
+    if (rejected) {
       response.status(403).json({ error: 'This website is not allowed to use the API.' })
       return
     }

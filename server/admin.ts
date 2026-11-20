@@ -148,6 +148,12 @@ const communicationSchema = z.discriminatedUnion('action', [
   z.object({ action: z.enum(['complete', 'call_opened', 'whatsapp_opened', 'email_opened']) }).strict(),
 ])
 
+function logDevelopmentLoginFailure(reason: 'credentials rejected' | 'admin UID not allowed' | 'admin email not allowed') {
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+    console.info('Development admin login:', reason)
+  }
+}
+
 export function createAdminRouter(deps: AdminDependencies = defaultDependencies) {
   const router = Router()
   router.use((_req, res, next) => {
@@ -167,10 +173,14 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
     }
     const auth = await deps.signIn(parsed.data.email, parsed.data.password)
     if (!auth) {
+      logDevelopmentLoginFailure('credentials rejected')
       res.status(401).json({ error: 'Invalid credentials or unauthorized account.' })
       return
     }
-    if (!deps.allowedUserIds().includes(auth.userId) || !await deps.isAdminEmail(auth.email)) {
+    const uidAllowed = deps.allowedUserIds().includes(auth.userId)
+    const emailAllowed = uidAllowed && await deps.isAdminEmail(auth.email)
+    if (!uidAllowed || !emailAllowed) {
+      logDevelopmentLoginFailure(uidAllowed ? 'admin email not allowed' : 'admin UID not allowed')
       await deps.signOut(auth.accessToken)
       res.status(403).json({ error: 'Invalid credentials or unauthorized account.' })
       return

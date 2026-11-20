@@ -55,6 +55,35 @@ async function login(base: string) {
 describe('admin authentication and APIs', () => {
   afterEach(() => vi.restoreAllMocks())
 
+  it('reports the local login failure stage without logging credentials', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+    try {
+      await withServer(async (base, deps) => {
+        deps.signIn.mockResolvedValueOnce(null)
+        const response = await fetch(`${base}/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@example.com', password: 'secret-password' }),
+        })
+        expect(response.status).toBe(401)
+        expect(log).toHaveBeenCalledWith('Development admin login:', 'credentials rejected')
+        deps.allowedUserIds.mockReturnValueOnce(['admin-id']).mockReturnValueOnce(['other-id'])
+        expect((await fetch(`${base}/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@example.com', password: 'secret-password' }),
+        })).status).toBe(403)
+        expect(log).toHaveBeenCalledWith('Development admin login:', 'admin UID not allowed')
+        deps.isAdminEmail.mockResolvedValueOnce(false)
+        expect((await fetch(`${base}/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@example.com', password: 'secret-password' }),
+        })).status).toBe(403)
+        expect(log).toHaveBeenCalledWith('Development admin login:', 'admin email not allowed')
+        expect(JSON.stringify(log.mock.calls)).not.toContain('secret-password')
+      })
+    } finally { vi.unstubAllEnvs() }
+  })
+
   it('protects and validates communication actions, history, and follow-up lists', async () => {
     await withServer(async (base, deps) => {
       for (const [path, method] of [['/follow-ups', 'GET'], ['/orders/1/history', 'GET'], ['/orders/1/communication', 'POST']]) {

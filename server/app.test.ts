@@ -487,6 +487,25 @@ describe('simple email API', () => {
     })
   })
 
+  it('logs only safe request metadata for development origin checks', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    vi.stubEnv('CLIENT_ORIGINS', '')
+    vi.stubEnv('CLIENT_ORIGIN', 'http://localhost:4173')
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {})
+    await withServer(vi.fn(), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/admin/login?secret=query-value`, {
+        method: 'POST',
+        headers: { Origin: 'https://user:secret@other.example', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@example.invalid', password: 'secret-password' }),
+      })
+      expect(response.status).toBe(403)
+      expect(log).toHaveBeenCalledWith('Development origin check:', {
+        method: 'POST', route: '/api/admin/login', origin: 'https://other.example', rejected: true,
+      })
+      expect(JSON.stringify(log.mock.calls)).not.toContain('secret')
+    })
+  })
+
   it('allows an explicitly configured list of production Vercel and custom-domain origins', async () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('CLIENT_ORIGINS', 'https://shree-yash.vercel.app, https://jewels.example.com/')

@@ -29,6 +29,10 @@ Requirements: Node.js 20.19+ or 22.12+.
    browser's protocol and port. In development, localhost and loopback IP aliases are accepted
    on the configured port; a different port, such as 5173, must be explicitly configured.
    Restart both servers after changing `.env`. Do not add localhost to production origin settings.
+   Temporary development console diagnostics report the sanitized request origin and whether
+   it was rejected. A failed admin sign-in also reports whether Supabase rejected the
+   credentials or the UID/email allow-list rejected the user. These diagnostics do not log
+   passwords, tokens, request bodies, or full URLs and are disabled in production.
 
 3. Run checks:
 
