@@ -145,6 +145,32 @@ img {
 .admin-details dd { margin: 0; }
 .admin-details pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .admin-pagination { justify-content: center; margin-top: 20px; }
+.contact-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.customer-communication { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.customer-communication p { margin: 8px 0; }
+.contact-buttons, .communication-fields, .communication-fields form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.contact-buttons a, .contact-unavailable, .customer-communication button {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--champagne); border-radius: 8px;
+  padding: 7px 10px; background: var(--white); color: var(--ink);
+}
+.contact-buttons svg { width: 17px; height: 17px; flex: none; }
+.contact-unavailable { color: var(--muted); opacity: .7; }
+.customer-communication button { cursor: pointer; }
+.customer-communication button:disabled { opacity: .5; cursor: not-allowed; }
+.contact-hint { color: var(--muted); font-size: .85rem; }
+.communication-fields { margin-top: 12px; gap: 16px; }
+.communication-fields label, .communication-form label { display: grid; gap: 4px; }
+.customer-communication select, .customer-communication input, .customer-communication textarea, .contact-filter select {
+  max-width: 100%; padding: 7px; border: 1px solid var(--champagne); border-radius: 6px; background: var(--white); color: var(--ink);
+}
+.customer-communication details { margin-top: 12px; }
+.customer-communication summary { cursor: pointer; font-weight: 600; }
+.communication-form { display: grid; gap: 8px; margin-top: 12px; max-width: 600px; }
+.communication-form button { justify-self: start; }
+.communication-form textarea { min-height: 70px; resize: vertical; }
+.contact-history { padding-left: 20px; overflow-wrap: anywhere; }
+.contact-history li { margin: 10px 0; }
+.contact-history li div { white-space: pre-wrap; }
 
 .hero-content,
 .section-heading,

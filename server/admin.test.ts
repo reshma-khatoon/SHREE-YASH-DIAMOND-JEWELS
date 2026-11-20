@@ -19,6 +19,9 @@ function setup() {
     list: vi.fn().mockResolvedValue([{ id: 1, admin_status: 'new' }]),
     update: vi.fn().mockResolvedValue(true),
     remove: vi.fn().mockResolvedValue(true),
+    followUps: vi.fn().mockResolvedValue([]),
+    history: vi.fn().mockResolvedValue([]),
+    communicate: vi.fn().mockResolvedValue(true),
     allowedUserIds: vi.fn().mockReturnValue(['admin-id']),
   }
   const app = express()
@@ -51,6 +54,43 @@ async function login(base: string) {
 
 describe('admin authentication and APIs', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('protects and validates communication actions, history, and follow-up lists', async () => {
+    await withServer(async (base, deps) => {
+      for (const [path, method] of [['/follow-ups', 'GET'], ['/orders/1/history', 'GET'], ['/orders/1/communication', 'POST']]) {
+        expect((await fetch(`${base}${path}`, { method })).status).toBe(401)
+      }
+      const headers = { Authorization: `Bearer ${await login(base)}`, 'Content-Type': 'application/json' }
+      expect((await fetch(`${base}/follow-ups?offset=50`, { headers })).status).toBe(200)
+      expect(deps.followUps).toHaveBeenCalledWith(50)
+      expect((await fetch(`${base}/orders?contactStatus=follow-up`, { headers })).status).toBe(200)
+      expect(deps.list).toHaveBeenLastCalledWith('orders', 0, 'follow-up')
+      expect((await fetch(`${base}/orders?contactStatus=read`, { headers })).status).toBe(400)
+      expect((await fetch(`${base}/orders/1/history`, { headers })).status).toBe(200)
+      deps.history.mockResolvedValueOnce(null)
+      expect((await fetch(`${base}/orders/999/history`, { headers })).status).toBe(404)
+      for (const body of [
+        { action: 'status', value: 'contacted' }, { action: 'schedule', value: '2026-12-01' },
+        { action: 'note', value: 'Please call later' }, { action: 'complete' }, { action: 'call_opened' },
+        { action: 'whatsapp_opened' }, { action: 'email_opened' },
+        { action: 'outcome', method: 'email', value: 'Customer replied' },
+      ]) {
+        expect((await fetch(`${base}/orders/1/communication`, { method: 'POST', headers, body: JSON.stringify(body) })).status).toBe(200)
+      }
+      expect(deps.communicate).toHaveBeenLastCalledWith('orders', 1, 'admin-id', 'outcome', 'email:Customer replied')
+      for (const body of [
+        { action: 'status', value: 'replied' }, { action: 'schedule', value: '2026-02-30' },
+        { action: 'note', value: '  ' }, { action: 'outcome', method: 'sms', value: 'Done' },
+        { action: 'call_opened', value: 'tamper' },
+      ]) {
+        expect((await fetch(`${base}/orders/1/communication`, { method: 'POST', headers, body: JSON.stringify(body) })).status).toBe(400)
+      }
+      deps.communicate.mockResolvedValueOnce(false)
+      expect((await fetch(`${base}/orders/999/communication`, { method: 'POST', headers, body: JSON.stringify({ action: 'complete' }) })).status).toBe(404)
+      deps.isAdminEmail.mockResolvedValueOnce(false)
+      expect((await fetch(`${base}/orders/1/history`, { headers })).status).toBe(401)
+    })
+  })
 
   it('only returns counts to authorized admins', async () => {
     await withServer(async (base, deps) => {

@@ -52,6 +52,22 @@ Admins can permanently delete individual enquiries, orders, and cart requests af
 
 The dashboard counts all saved inquiries, orders, and cart leads, regardless of the current list page. The Admin icon's badge is visible only after an authorized count request succeeds and shows the combined new inquiries, orders, and cart leads; it is hidden for zero. “New” counts use `admin_status = 'new'`, not order fulfilment status. Counts refresh on dashboard entry, every 15 seconds while signed in, when the tab becomes visible, and after a status change or deletion. A count error is shown instead of treating a failed query as zero.
 
+## Customer communication and follow-ups
+
+After migration 003, review and run `supabase/migrations/004_customer_communication.sql` in the same Supabase project's SQL Editor before deploying this version. It adds communication fields to the existing three tables, a private history table, a follow-up view, and a server-only transactional function. It does not replace existing statuses or tables. The migration enables RLS on history and denies direct anonymous and authenticated client access; the Express API uses the service role only after checking both the user's UID and admin email. Deleting a record also deletes its communication history.
+
+Each dashboard card offers Call, WhatsApp and Email when a usable address is available. WhatsApp and email open a draft; the admin must send it manually. Indian mobile numbers with `0`, `91`, `+91`, or `0091` prefixes are normalized for WhatsApp. For other countries include the international `+` or `00` prefix. A dialer or email application must be installed and configured on the device. Opening a link records an attempted action, **not** a completed call or sent message; if saving that history fails, the card displays an error. Contact details and enquiry text are included in the draft and passed to the chosen app.
+
+The separate contact status (New, Contacted, Follow-up, Closed) can be filtered in each category and does not change the existing New/Read/Replied dashboard status or order fulfilment status. Set a date to schedule a follow-up; the Follow-ups tab lists pending items from all three categories, ordered by date, and marks dates before the device's local today as overdue. Marking a follow-up completed removes it from that list. Private notes and status changes are visible in the card's contact history. Use **Record outcome** with the actual method and result after contacting the customer; this sets the last recorded contact date and method. Recording an outcome does not automatically change status.
+
+To test locally with an authorized account:
+
+1. Apply migration 004 to a test Supabase project, configure the existing variables above, and run `npm run dev`. No new environment variables are needed. Do not test by changing real customer records unless intended.
+2. Submit test enquiries, orders and saved-cart requests, then sign in at `/admin/login`. Verify the contact buttons and customer/product details in each category. Check a record without an email and one with an invalid or missing phone: unavailable actions should be labelled.
+3. Inspect the dialer, WhatsApp and email drafts without sending. Confirm Indian numbers contain only one `91` prefix. Check that opening a link adds the corresponding history event but does not update the last recorded contact.
+4. Change and filter the contact status, schedule a past and a future follow-up, and check the Follow-ups tab. Add a private note, record an actual outcome, complete a follow-up, and reload the page to confirm persistence and history. Verify an unauthorized account cannot access the admin API.
+5. Check the dashboard at mobile, tablet and desktop widths. Run `npm test` and `npm run build`.
+
 ## Email configuration
 
 Optional backend variables:
@@ -98,6 +114,9 @@ The Vercel project serves the Vite website and rewrites `/api/*` to the Vercel F
 - In Vercel → Project Settings → Environment Variables, configure backend `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_USER_IDS`, `CLIENT_ORIGINS`, and the SMTP and WhatsApp variables described above. Also configure frontend build variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` with the same project's public URL and anon or publishable key. Set them for the appropriate Production or Preview environment. `ADMIN_USER_IDS` must contain the UID of an existing Supabase Auth user whose email is also in `public.admins`; include the exact website origins in `CLIENT_ORIGINS`.
 - Leave `VITE_API_BASE_URL` empty for same-origin requests. If it points to a separate Express service, configure its backend variables and CORS on that service instead; Vercel variables do not configure a separately hosted API.
 - Redeploy after changing variables or application code. Never expose the service role key, SMTP password, or WhatsApp access token in a `VITE_` variable.
+- Apply migration 004 to the target Supabase project before deploying the communication UI and API. Deploy the application using the existing Vercel Git integration or Vercel CLI, then verify the test steps above against safe test records. Preview and production deployments need the variables and migration in their respective projects.
+
+For a Git-connected Vercel project: apply migration 004 in the target Supabase SQL Editor; set the variables above in Vercel Project Settings → Environment Variables for the intended environment; commit and push these application changes to the connected branch; then open Vercel → Deployments and wait for the deployment to become Ready. If environment variables were changed after the build, use the deployment's Redeploy action. Open the deployed `/admin/login` over HTTPS and run the safe-record checks in Customer communication and follow-ups.
 
 After deployment, `POST /api/admin/login` with `{}` should return a JSON 400 validation error, and unauthenticated `GET /api/admin/session` should return JSON 401. These checks do not require credentials or modify customer data. A real login requires the configured Supabase project and authorized account; verify login, refresh, logout, and denied access for an unauthorized user. For API failures, inspect Vercel Function logs without sharing credentials.
 

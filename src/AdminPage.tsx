@@ -2,15 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { adminRequest, AdminRequestError, type AdminCounts } from './adminApi'
 import { adminClient, adminSessionClearedEvent, adminSessionStorageKey, clearAdminSession, clearRejectedSession, signInAdmin } from './adminSession'
+import { CustomerCommunication } from './CustomerCommunication'
+import type { CustomerRecord, CustomerTable } from './customerContact'
 
-type TableName = 'inquiries' | 'orders' | 'cart_leads'
+type TableName = CustomerTable
 type AdminStatus = 'new' | 'read' | 'replied'
-type RecordData = {
-  id: number
-  created_at: string
-  admin_status: AdminStatus
-  [key: string]: unknown
-}
+type RecordData = CustomerRecord & { recordType: TableName }
 
 const sections: { value: TableName; label: string }[] = [
   { value: 'inquiries', label: 'Enquiries' },
@@ -74,20 +71,22 @@ function details(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
-function RecordCard({ record, table, onStatus, onDelete }: {
+function RecordCard({ record, table, token, onStatus, onDelete, onCommunicationChange }: {
   record: RecordData
   table: TableName
+  token: string
   onStatus: (id: number, status: AdminStatus) => Promise<void>
   onDelete: (id: number, title: string) => Promise<void>
+  onCommunicationChange: () => void
 }) {
-  const excluded = new Set(['id', 'created_at', 'admin_status'])
+  const excluded = new Set(['id', 'created_at', 'admin_status', 'recordType', 'contact_status', 'follow_up_date', 'last_contact_at', 'last_contact_method'])
   const title = table === 'orders' ? details(record.order_id) : table === 'cart_leads' ? details(record.lead_id) : `Enquiry #${record.id}`
   return (
     <article className="admin-record">
       <div className="admin-record-header">
         <div><h3>{title}</h3><span>{new Date(record.created_at).toLocaleString('en-IN')}</span></div>
         <div className="admin-record-actions">
-          <label>Status
+          <label>Dashboard status
             <select value={record.admin_status} onChange={(event) => void onStatus(record.id, event.target.value as AdminStatus)}>
               <option value="new">New</option><option value="read">Read</option><option value="replied">Replied</option>
             </select>
@@ -101,6 +100,7 @@ function RecordCard({ record, table, onStatus, onDelete }: {
           <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd><pre>{details(value)}</pre></dd></div>
         ))}
       </dl>
+      <CustomerCommunication record={record} table={table} token={token} onChange={onCommunicationChange} />
     </article>
   )
 }
@@ -218,6 +218,8 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
   const [checkingSession, setCheckingSession] = useState(false)
   const [sessionCheckVersion, setSessionCheckVersion] = useState(0)
   const [table, setTable] = useState<TableName>('inquiries')
+  const [followUps, setFollowUps] = useState(false)
+  const [contactStatus, setContactStatus] = useState('')
   const [offset, setOffset] = useState(0)
   const [records, setRecords] = useState<RecordData[]>([])
   const [recordsVersion, setRecordsVersion] = useState(0)
@@ -254,8 +256,15 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
     setRecords([])
     setError('')
     setBusy(true)
-    adminRequest<{ records: RecordData[] }>(`/${table}?offset=${offset}`, token)
-      .then((data) => { if (active) setRecords(data.records) })
+    const path = followUps ? `/follow-ups?offset=${offset}`
+      : `/${table}?offset=${offset}${contactStatus ? `&contactStatus=${encodeURIComponent(contactStatus)}` : ''}`
+    const request = followUps
+      ? adminRequest<{ records: { record_type: TableName; record: CustomerRecord }[] }>(path, token)
+        .then((data) => data.records.map(({ record, record_type }) => ({ ...record, recordType: record_type })))
+      : adminRequest<{ records: CustomerRecord[] }>(path, token)
+        .then((data) => data.records.map((record) => ({ ...record, recordType: table })))
+    request
+      .then((data) => { if (active) setRecords(data) })
       .catch(async (err: Error) => {
         if (!active) return
         if (err instanceof AdminRequestError && err.status === 401) {
@@ -277,7 +286,7 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
       })
       .finally(() => { if (active) setBusy(false) })
     return () => { active = false }
-  }, [token, verifiedToken, table, offset, recordsVersion])
+  }, [token, verifiedToken, table, followUps, contactStatus, offset, recordsVersion])
 
   async function logout() {
     setLoggingOut(true)
@@ -298,12 +307,12 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
     }
   }
 
-  async function updateStatus(id: number, status: AdminStatus) {
+  async function updateStatus(recordTable: TableName, id: number, status: AdminStatus) {
     setError('')
     setBusy(true)
     try {
-      await adminRequest(`/${table}/${id}/status`, token, 'PATCH', { status })
-      setRecords((current) => current.map((record) => record.id === id ? { ...record, admin_status: status } : record))
+      await adminRequest(`/${recordTable}/${id}/status`, token, 'PATCH', { status })
+      setRecords((current) => current.map((record) => record.id === id && record.recordType === recordTable ? { ...record, admin_status: status } : record))
       refreshCounts()
     } catch (err) {
       if (err instanceof AdminRequestError && err.status === 401) {
@@ -321,13 +330,13 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
     }
   }
 
-  async function deleteRecord(id: number, title: string) {
-    if (!window.confirm(`Permanently delete ${title}? This cannot be undone.`)) return
+  async function deleteRecord(recordTable: TableName, id: number, title: string) {
+    if (!window.confirm(`Permanently delete ${title} and its contact history? This cannot be undone.`)) return
     setError('')
     setBusy(true)
     try {
-      await adminRequest(`/${table}/${id}`, token, 'DELETE')
-      setRecords((current) => current.filter((record) => record.id !== id))
+      await adminRequest(`/${recordTable}/${id}`, token, 'DELETE')
+      setRecords((current) => current.filter((record) => record.id !== id || record.recordType !== recordTable))
       refreshCounts()
       if (records.length === 1 && offset > 0) setOffset((value) => Math.max(0, value - 50))
       else setRecordsVersion((value) => value + 1)
@@ -375,13 +384,23 @@ export default function AdminPage({ session, counts, countsError, refreshCounts 
       </section>
       <div className="admin-toolbar">
         <div className="admin-tabs">
-          {sections.map((section) => <button key={section.value} type="button" disabled={busy} aria-pressed={section.value === table}
-            onClick={() => { setTable(section.value); setOffset(0) }}>{section.label}</button>)}
+          {sections.map((section) => <button key={section.value} type="button" disabled={busy} aria-pressed={!followUps && section.value === table}
+            onClick={() => { setFollowUps(false); setTable(section.value); setOffset(0) }}>{section.label}</button>)}
+          <button type="button" disabled={busy} aria-pressed={followUps} onClick={() => { setFollowUps(true); setOffset(0) }}>Follow-ups</button>
         </div>
         <button type="button" onClick={() => void logout()} disabled={busy}>Log out</button>
       </div>
+      {followUps ? <p>Pending and overdue follow-ups across enquiries, orders and cart requests, sorted by date.</p>
+        : <label className="contact-filter">Filter by contact status
+          <select value={contactStatus} onChange={(event) => { setContactStatus(event.target.value); setOffset(0) }}>
+            <option value="">All</option><option value="new">New</option><option value="contacted">Contacted</option><option value="follow-up">Follow-up</option><option value="closed">Closed</option>
+          </select>
+        </label>}
       {busy ? <p>Loading…</p> : records.length === 0 ? <p>No records on this page.</p> : (
-        <div className="admin-records">{records.map((record) => <RecordCard key={record.id} record={record} table={table} onStatus={updateStatus} onDelete={deleteRecord} />)}</div>
+        <div className="admin-records">{records.map((record) => <RecordCard key={`${record.recordType}-${record.id}`} record={record} table={record.recordType} token={token}
+          onStatus={(id, status) => updateStatus(record.recordType, id, status)}
+          onDelete={(id, title) => deleteRecord(record.recordType, id, title)}
+          onCommunicationChange={() => setRecordsVersion((value) => value + 1)} />)}</div>
       )}
       <div className="admin-pagination">
         <button type="button" disabled={busy || offset === 0} onClick={() => setOffset((value) => Math.max(0, value - 50))}>Previous</button>

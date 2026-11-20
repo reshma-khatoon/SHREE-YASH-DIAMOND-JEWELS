@@ -6,6 +6,8 @@ import { supabase } from './supabase.js'
 const tableNames = ['inquiries', 'orders', 'cart_leads'] as const
 type TableName = typeof tableNames[number]
 type AdminStatus = 'new' | 'read' | 'replied'
+type ContactStatus = 'new' | 'contacted' | 'follow-up' | 'closed'
+type CommunicationAction = 'status' | 'schedule' | 'complete' | 'note' | 'call_opened' | 'whatsapp_opened' | 'email_opened' | 'outcome'
 type AdminCounts = {
   inquiries: { total: number; new: number }
   orders: { total: number; new: number }
@@ -17,10 +19,13 @@ type AdminDependencies = {
   isAdminEmail: (email: string) => Promise<boolean>
   signOut: (accessToken: string) => Promise<void>
   counts: () => Promise<AdminCounts>
-  list: (table: TableName, offset: number) => Promise<unknown[]>
+  list: (table: TableName, offset: number, status?: ContactStatus) => Promise<unknown[]>
   update: (table: TableName, id: number, status: AdminStatus) => Promise<boolean>
   remove: (table: TableName, id: number) => Promise<boolean>
   allowedUserIds: () => string[]
+  followUps: (offset: number) => Promise<unknown[]>
+  history: (table: TableName, id: number, offset: number) => Promise<unknown[] | null>
+  communicate: (table: TableName, id: number, actor: string, action: CommunicationAction, value: string | null) => Promise<boolean>
 }
 
 function authClient() {
@@ -86,9 +91,10 @@ const defaultDependencies: AdminDependencies = {
       cartLeads: { total: cartLeads, new: newCartLeads },
     }
   },
-  async list(table, offset) {
-    const { data, error } = await supabase.from(table).select('*,admin_status')
-      .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 49)
+  async list(table, offset, status) {
+    let query = supabase.from(table).select('*,admin_status')
+    if (status) query = query.eq('contact_status', status)
+    const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 49)
     if (error) throw new Error(`Could not load ${table}: ${error.message}`)
     return data
   },
@@ -102,6 +108,29 @@ const defaultDependencies: AdminDependencies = {
     if (error) throw new Error(`Could not delete ${table} record: ${error.message}`)
     return data.length === 1
   },
+  async followUps(offset) {
+    const { data, error } = await supabase.from('admin_follow_ups').select('record_type,record')
+      .order('follow_up_date').order('record_type').order('id').range(offset, offset + 49)
+    if (error) throw new Error(`Could not load follow-ups: ${error.message}`)
+    return data
+  },
+  async history(table, id, offset) {
+    const { data: record, error: recordError } = await supabase.from(table).select('id').eq('id', id).maybeSingle()
+    if (recordError) throw new Error(`Could not find record: ${recordError.message}`)
+    if (!record) return null
+    const { data, error } = await supabase.from('customer_contact_history').select('id,event_type,detail,created_at')
+      .eq('record_type', table).eq('record_id', id).order('created_at', { ascending: false })
+      .order('id', { ascending: false }).range(offset, offset + 49)
+    if (error) throw new Error(`Could not load contact history: ${error.message}`)
+    return data
+  },
+  async communicate(table, id, actor, action, value) {
+    const { data, error } = await supabase.rpc('admin_communication_action', {
+      p_table: table, p_id: id, p_actor: actor, p_action: action, p_value: value,
+    })
+    if (error) throw new Error(`Could not save communication action: ${error.message}`)
+    return data === true
+  },
   allowedUserIds: () => (process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean),
 }
 
@@ -110,6 +139,14 @@ const statusSchema = z.object({ status: z.enum(['new', 'read', 'replied']) }).st
 const tableSchema = z.enum(tableNames)
 const idSchema = z.coerce.number().int().positive().safe()
 const offsetSchema = z.coerce.number().int().min(0).max(100000).default(0)
+const contactStatusSchema = z.enum(['new', 'contacted', 'follow-up', 'closed'])
+const communicationSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('status'), value: contactStatusSchema }).strict(),
+  z.object({ action: z.literal('schedule'), value: z.iso.date() }).strict(),
+  z.object({ action: z.literal('note'), value: z.string().trim().min(1).max(5000) }).strict(),
+  z.object({ action: z.literal('outcome'), method: z.enum(['call', 'whatsapp', 'email']), value: z.string().trim().min(1).max(5000) }).strict(),
+  z.object({ action: z.enum(['complete', 'call_opened', 'whatsapp_opened', 'email_opened']) }).strict(),
+])
 
 export function createAdminRouter(deps: AdminDependencies = defaultDependencies) {
   const router = Router()
@@ -156,6 +193,7 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
       return
     }
     res.locals.adminToken = token
+    res.locals.adminUserId = user.userId
     next()
   })
 
@@ -173,14 +211,48 @@ export function createAdminRouter(deps: AdminDependencies = defaultDependencies)
     res.json(await deps.counts())
   })
 
+  router.get('/follow-ups', async (req, res) => {
+    const offset = offsetSchema.safeParse(req.query.offset)
+    if (!offset.success) { res.status(400).json({ error: 'Invalid page.' }); return }
+    res.json({ records: await deps.followUps(offset.data) })
+  })
+
   router.get('/:table', async (req, res) => {
     const table = tableSchema.safeParse(req.params.table)
     const offset = offsetSchema.safeParse(req.query.offset)
-    if (!table.success || !offset.success) {
+    const status = req.query.contactStatus === undefined ? undefined : contactStatusSchema.safeParse(req.query.contactStatus)
+    if (!table.success || !offset.success || (status && !status.success)) {
       res.status(400).json({ error: 'Invalid table or page.' })
       return
     }
-    res.json({ records: await deps.list(table.data, offset.data) })
+    res.json({ records: await deps.list(table.data, offset.data, status?.data) })
+  })
+
+  router.get('/:table/:id/history', async (req, res) => {
+    const table = tableSchema.safeParse(req.params.table)
+    const id = idSchema.safeParse(req.params.id)
+    const offset = offsetSchema.safeParse(req.query.offset)
+    if (!table.success || !id.success || !offset.success) {
+      res.status(400).json({ error: 'Invalid record or page.' }); return
+    }
+    const history = await deps.history(table.data, id.data, offset.data)
+    if (!history) { res.status(404).json({ error: 'Record not found.' }); return }
+    res.json({ history })
+  })
+
+  router.post('/:table/:id/communication', async (req, res) => {
+    const table = tableSchema.safeParse(req.params.table)
+    const id = idSchema.safeParse(req.params.id)
+    const body = communicationSchema.safeParse(req.body)
+    if (!table.success || !id.success || !body.success) {
+      res.status(400).json({ error: 'Invalid record or communication action.' }); return
+    }
+    const action = body.data
+    const value = action.action === 'outcome' ? `${action.method}:${action.value}` : 'value' in action ? action.value : null
+    if (!await deps.communicate(table.data, id.data, res.locals.adminUserId, action.action, value)) {
+      res.status(404).json({ error: 'Record not found.' }); return
+    }
+    res.json({ ok: true })
   })
 
   router.patch('/:table/:id/status', async (req, res) => {

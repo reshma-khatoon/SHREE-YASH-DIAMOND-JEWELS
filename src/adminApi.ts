@@ -12,7 +12,7 @@ export class AdminRequestError extends Error {
   }
 }
 
-export async function adminRequest<T>(path: string, token?: string, method = 'GET', body?: unknown): Promise<T> {
+export async function adminRequest<T>(path: string, token?: string, method = 'GET', body?: unknown, keepalive = false): Promise<T> {
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   if (body !== undefined) headers['Content-Type'] = 'application/json'
@@ -20,7 +20,7 @@ export async function adminRequest<T>(path: string, token?: string, method = 'GE
   let response: Response
   try {
     response = await fetch(`${apiBaseUrl}/api/admin${path}`, {
-      method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store',
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', keepalive,
     })
   } catch {
     throw new AdminRequestError('Cannot reach the admin API. Please check the connection and try again.', 0)
