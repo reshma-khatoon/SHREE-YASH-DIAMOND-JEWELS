@@ -28,6 +28,9 @@ Requirements: Node.js 20.19+ or 22.12+.
    over `CLIENT_ORIGIN`; remove or update any conflicting setting. The origin must match the
    browser's protocol and port. In development, localhost and loopback IP aliases are accepted
    on the configured port; a different port, such as 5173, must be explicitly configured.
+   When using a LAN address such as `http://192.168.1.44:4173`, add that exact origin to
+   `CLIENT_ORIGINS`, for example `CLIENT_ORIGINS=http://localhost:4173,http://192.168.1.44:4173`.
+   Only add addresses you trust; update the entry if your LAN IP changes.
    Restart both servers after changing `.env`. Do not add localhost to production origin settings.
    Temporary development console diagnostics report the sanitized request origin and whether
    it was rejected. A failed admin sign-in also reports whether Supabase rejected the
