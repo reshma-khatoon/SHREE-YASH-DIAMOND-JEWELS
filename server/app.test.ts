@@ -441,6 +441,52 @@ describe('simple email API', () => {
     })
   })
 
+  it('uses the singular origin when the plural setting contains only whitespace', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('CLIENT_ORIGINS', '   ')
+    vi.stubEnv('CLIENT_ORIGIN', 'https://jewels.example.com')
+    await withServer(vi.fn(), async (baseUrl) => {
+      for (const [origin, status] of [['https://jewels.example.com', 400], ['https://other.example.com', 403]] as const) {
+        const response = await fetch(`${baseUrl}/api/admin/login`, {
+          method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}',
+        })
+        expect(response.status).toBe(status)
+      }
+    })
+  })
+
+  it('uses only CLIENT_ORIGINS when both origin settings are populated', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('CLIENT_ORIGINS', 'https://current.example.com')
+    vi.stubEnv('CLIENT_ORIGIN', 'https://old.example.com')
+    await withServer(vi.fn(), async (baseUrl) => {
+      for (const [origin, status] of [['https://current.example.com', 400], ['https://old.example.com', 403]] as const) {
+        const response = await fetch(`${baseUrl}/api/admin/login`, {
+          method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}',
+        })
+        expect(response.status).toBe(status)
+      }
+    })
+  })
+
+  it('handles CORS before JSON parsing and keeps disallowed preflights blocked', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    vi.stubEnv('CLIENT_ORIGINS', '')
+    vi.stubEnv('CLIENT_ORIGIN', 'http://localhost:4173')
+    await withServer(vi.fn(), async (baseUrl) => {
+      const badJson = await fetch(`${baseUrl}/api/admin/login`, {
+        method: 'POST', headers: { Origin: 'http://localhost:4173', 'Content-Type': 'application/json' }, body: '{',
+      })
+      expect(badJson.status).toBe(400)
+      expect(badJson.headers.get('access-control-allow-origin')).toBe('http://localhost:4173')
+      const blocked = await fetch(`${baseUrl}/api/admin/login`, {
+        method: 'OPTIONS', headers: { Origin: 'http://localhost:5173', 'Access-Control-Request-Method': 'POST' },
+      })
+      expect(blocked.status).toBe(403)
+      expect(blocked.headers.get('access-control-allow-origin')).toBeNull()
+    })
+  })
+
   it('allows an explicitly configured list of production Vercel and custom-domain origins', async () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('CLIENT_ORIGINS', 'https://shree-yash.vercel.app, https://jewels.example.com/')

@@ -81,11 +81,10 @@ function formatDate(date: Date) {
 export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: SubmissionSaver = saveSubmission) {
   const app = express()
   app.disable('x-powered-by')
-  app.use(express.json({ limit: '20kb' }))
 
   app.use((request, response, next) => {
     const origin = request.headers.origin
-    const configuredOrigins = (process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN || '')
+    const configuredOrigins = (process.env.CLIENT_ORIGINS?.trim() || process.env.CLIENT_ORIGIN || '')
       .split(',')
       .map((configuredOrigin) => configuredOrigin.trim())
       .filter(Boolean)
@@ -106,6 +105,8 @@ export function createApp(sendEmail: EmailSender = sendNotificationEmail, save: 
     }
     next()
   })
+
+  app.use(express.json({ limit: '20kb' }))
 
   app.use('/api/admin', createAdminRouter())
 

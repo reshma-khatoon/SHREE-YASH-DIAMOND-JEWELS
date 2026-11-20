@@ -23,6 +23,12 @@ Requirements: Node.js 20.19+ or 22.12+.
    ```
 
    Open `http://localhost:4173`. Vite forwards `/api` requests to Express on port `3001`.
+   Keep `VITE_API_BASE_URL=` empty to use that proxy and set `CLIENT_ORIGIN=http://localhost:4173`
+   (or `CLIENT_ORIGINS=http://localhost:4173`). A nonblank `CLIENT_ORIGINS` takes precedence
+   over `CLIENT_ORIGIN`; remove or update any conflicting setting. The origin must match the
+   browser's protocol and port. In development, localhost and loopback IP aliases are accepted
+   on the configured port; a different port, such as 5173, must be explicitly configured.
+   Restart both servers after changing `.env`. Do not add localhost to production origin settings.
 
 3. Run checks:
 
